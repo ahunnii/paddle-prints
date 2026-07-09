@@ -26,7 +26,12 @@ export default async function RecordPage({
   let route: RecordRoute | null = null;
   if (routeId) {
     try {
-      const r = await api.routes.byId({ id: routeId });
+      // Fetched in parallel: the ETA call can never itself be the reason this route falls back to a
+      // free paddle (it can only 404 if the route itself is gone, which `routes.byId` already guards).
+      const [r, eta] = await Promise.all([
+        api.routes.byId({ id: routeId }),
+        api.routes.etaForUser({ routeId }),
+      ]);
       route = {
         id: r.id,
         name: r.name,
@@ -42,6 +47,7 @@ export default async function RecordPage({
           note: p.note,
           routeDistM: p.routeDistM,
         })),
+        historicalSpeedMps: eta.speedMps,
       };
     } catch (err) {
       // A bad/removed route id just falls back to a free paddle rather than erroring the page.

@@ -27,7 +27,7 @@ export default async function RoutesPage() {
   const routes = await api.routes.list();
 
   return (
-    <main className="from-river-800 to-river-950 min-h-screen bg-gradient-to-b px-4 pb-28 pt-8">
+    <main className="from-river-800 to-river-950 min-h-dvh bg-gradient-to-b px-4 pb-28 pt-[max(2rem,env(safe-area-inset-top))]">
       <div className="mx-auto flex max-w-2xl flex-col gap-6">
         <div className="flex items-center justify-between">
           <div>
@@ -37,7 +37,7 @@ export default async function RoutesPage() {
             >
               ← Back
             </Link>
-            <h1 className="mt-1 text-3xl font-extrabold tracking-tight text-white">
+            <h1 className="font-display mt-1 text-3xl font-extrabold tracking-tight text-white">
               Routes
             </h1>
           </div>
@@ -51,7 +51,7 @@ export default async function RoutesPage() {
             </p>
             <Link
               href="/routes/new"
-              className="bg-sunset-500 hover:bg-sunset-600 mt-2 rounded-full px-6 py-2.5 font-semibold text-white shadow-lg transition-colors"
+              className="bg-sunset-500 hover:bg-sunset-600 active:scale-[0.98] active:bg-sunset-600 mt-2 rounded-full px-6 py-2.5 font-semibold text-white shadow-lg transition-colors"
             >
               + New route
             </Link>
@@ -62,7 +62,7 @@ export default async function RoutesPage() {
               <li key={route.id}>
                 <Link
                   href={`/routes/${route.id}`}
-                  className="flex items-center gap-4 rounded-2xl bg-white/95 p-4 shadow-lg transition-transform hover:scale-[1.01]"
+                  className="flex items-center gap-4 rounded-2xl bg-white/95 p-4 shadow-lg transition-transform hover:scale-[1.01] active:scale-[0.99]"
                 >
                   <span className="text-3xl">{typeIcon(route.type)}</span>
                   <div className="flex flex-1 flex-col">
@@ -86,7 +86,7 @@ export default async function RoutesPage() {
       <div className="pointer-events-none fixed inset-x-0 bottom-0 flex justify-center p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
         <Link
           href="/routes/new"
-          className="bg-sunset-500 hover:bg-sunset-600 pointer-events-auto flex min-h-11 items-center gap-2 rounded-full px-6 py-3 font-semibold text-white shadow-2xl transition-colors"
+          className="bg-sunset-500 hover:bg-sunset-600 active:scale-[0.98] active:bg-sunset-600 pointer-events-auto flex min-h-11 items-center gap-2 rounded-full px-6 py-3 font-semibold text-white shadow-2xl transition-colors"
         >
           + New route
         </Link>

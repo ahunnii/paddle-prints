@@ -1,7 +1,7 @@
 import "~/styles/globals.css";
 
 import { type Metadata, type Viewport } from "next";
-import { Geist } from "next/font/google";
+import { Geist, Nunito } from "next/font/google";
 
 import { TRPCReactProvider } from "~/trpc/react";
 import { OfflineLayer } from "~/components/offline/offline-layer";
@@ -29,11 +29,19 @@ const geist = Geist({
   variable: "--font-geist-sans",
 });
 
+// Rounded, friendly display face for headings -- self-hosted at build time (no runtime request to
+// Google, so it works offline once cached), body copy stays on the system font stack.
+const nunito = Nunito({
+  subsets: ["latin"],
+  weight: ["700", "800", "900"],
+  variable: "--font-nunito",
+});
+
 export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en" className={`${geist.variable}`}>
+    <html lang="en" className={`${geist.variable} ${nunito.variable}`}>
       <body>
         <TRPCReactProvider>
           <OfflineLayer>{children}</OfflineLayer>

@@ -34,6 +34,11 @@ interface Runtime {
   ckpt: ReturnType<typeof setInterval> | null;
   wakeLock: WakeLockSentinel | null;
   visibilityBound: boolean;
+  /** Timestamp of the start of the current unbroken streak of coarse (>100m) fixes, or null if the
+   * most recent fix was accurate. Detects a persistent-coarse-GPS drought (iOS "Precise Location"
+   * toggled off) independent of the machine's own accept/reject gates -- this needs to see EVERY fix,
+   * including ones the reducer drops. */
+  coarseStreakStartedAt: number | null;
 }
 const runtime: Runtime = {
   watchId: null,
@@ -41,7 +46,13 @@ const runtime: Runtime = {
   ckpt: null,
   wakeLock: null,
   visibilityBound: false,
+  coarseStreakStartedAt: null,
 };
+
+/** Window over which we judge "persistently coarse" accuracy. */
+const ACCURACY_HINT_WINDOW_MS = 30_000;
+/** Above this, a fix is "coarse" (roughly what iOS reports with Precise Location off). */
+const ACCURACY_HINT_THRESHOLD_M = 100;
 
 export interface RecorderConfig {
   routeId: string | null;
@@ -67,6 +78,11 @@ interface RecorderStore {
   wakeLockOk: boolean;
   gpsAccuracyM: number | null;
   geoError: string | null;
+  /** `GeolocationPositionError.code` for the current `geoError`, or null. 1 = PERMISSION_DENIED. */
+  geoErrorCode: number | null;
+  /** True once every fix for the last ~30s has been coarser than 100m -- likely Precise Location is
+   * off, worth hinting at, distinct from an outright permission denial. */
+  lowAccuracyHint: boolean;
 
   configure: (cfg: RecorderConfig) => void;
   start: () => Promise<void>;
@@ -165,22 +181,36 @@ export const useRecorder = create<RecorderStore>((set, get) => {
     if (typeof navigator !== "undefined" && "geolocation" in navigator) {
       runtime.watchId = navigator.geolocation.watchPosition(
         (pos) => {
-          set({ geoError: null });
+          const t = pos.timestamp || Date.now();
+          const acc = pos.coords.accuracy;
+
+          // Track every fix's accuracy (even ones the reducer will reject), independent of the
+          // machine's own accept/reject gates. Any accurate fix resets the streak immediately.
+          if (acc > ACCURACY_HINT_THRESHOLD_M) {
+            runtime.coarseStreakStartedAt ??= t;
+          } else {
+            runtime.coarseStreakStartedAt = null;
+          }
+          const lowAccuracyHint =
+            runtime.coarseStreakStartedAt != null &&
+            t - runtime.coarseStreakStartedAt >= ACCURACY_HINT_WINDOW_MS;
+
+          set({ geoError: null, geoErrorCode: null, lowAccuracyHint });
           dispatch({
             type: "FIX",
             point: {
               lng: pos.coords.longitude,
               lat: pos.coords.latitude,
-              t: pos.timestamp || Date.now(),
-              acc: pos.coords.accuracy,
+              t,
+              acc,
             },
           });
         },
-        (err) => set({ geoError: err.message }),
+        (err) => set({ geoError: err.message, geoErrorCode: err.code, lowAccuracyHint: false }),
         { enableHighAccuracy: true, maximumAge: 0, timeout: 30_000 },
       );
     } else {
-      set({ geoError: "Location isn't available on this device." });
+      set({ geoError: "Location isn't available on this device.", geoErrorCode: null });
     }
 
     runtime.tick = setInterval(
@@ -210,6 +240,7 @@ export const useRecorder = create<RecorderStore>((set, get) => {
     }
     void runtime.wakeLock?.release().catch(() => undefined);
     runtime.wakeLock = null;
+    runtime.coarseStreakStartedAt = null;
   }
 
   return {
@@ -227,6 +258,8 @@ export const useRecorder = create<RecorderStore>((set, get) => {
     wakeLockOk: false,
     gpsAccuracyM: null,
     geoError: null,
+    geoErrorCode: null,
+    lowAccuracyHint: false,
 
     configure(cfg) {
       const routeModel =
@@ -246,6 +279,8 @@ export const useRecorder = create<RecorderStore>((set, get) => {
         eta: null,
         gpsAccuracyM: null,
         geoError: null,
+        geoErrorCode: null,
+        lowAccuracyHint: false,
       });
     },
 

@@ -19,6 +19,9 @@ import type { PoiInput } from "~/lib/offline/db";
 import { NavMap } from "~/components/record/nav-map";
 
 const METERS_PER_MILE = 1609.344;
+// `GeolocationPositionError.PERMISSION_DENIED` -- hardcoded rather than referencing the DOM
+// constructor, which doesn't exist during server-side rendering of this client component.
+const GEO_PERMISSION_DENIED = 1;
 
 export interface RecordRoute {
   id: string;
@@ -28,6 +31,9 @@ export interface RecordRoute {
   type: "river" | "waypoint";
   coords: Array<[number, number]>;
   pois: CorridorPoi[];
+  /** The paddler's personal historical cruising speed for this route (see `routes.etaForUser`), fed
+   * into the live ETA blend so it starts from a real number instead of the generic 3.0 mph default. */
+  historicalSpeedMps?: number;
 }
 
 function miles(m: number, dp = 2) {
@@ -96,6 +102,8 @@ export function RecordClient({ route }: { route: RecordRoute | null }) {
   const wakeLockOk = useRecorder((s) => s.wakeLockOk);
   const gpsAcc = useRecorder((s) => s.gpsAccuracyM);
   const geoError = useRecorder((s) => s.geoError);
+  const geoErrorCode = useRecorder((s) => s.geoErrorCode);
+  const lowAccuracyHint = useRecorder((s) => s.lowAccuracyHint);
 
   const [tripType, setTripType] = useState<TripType>(route?.type ?? "river");
   const [showMap, setShowMap] = useState(true);
@@ -136,6 +144,7 @@ export function RecordClient({ route }: { route: RecordRoute | null }) {
       tripType: route?.type ?? "river",
       routeCoords: route?.coords ?? null,
       routeShape: route?.shape ?? "one_way",
+      historicalSpeedMps: route?.historicalSpeedMps,
     });
     // Checkpoint lives in IndexedDB now, so the resume check is async.
     let cancelled = false;
@@ -188,7 +197,7 @@ export function RecordClient({ route }: { route: RecordRoute | null }) {
     return (
       <main className="flex min-h-dvh flex-col items-center justify-center gap-6 bg-river-950 px-6 text-center text-white">
         <span className="text-5xl">🛶</span>
-        <h1 className="text-2xl font-extrabold">Resume your paddle?</h1>
+        <h1 className="font-display text-2xl font-extrabold">Resume your paddle?</h1>
         <p className="text-river-200 max-w-xs text-sm">
           {contextMatches
             ? "We found an unfinished paddle on this device."
@@ -203,7 +212,7 @@ export function RecordClient({ route }: { route: RecordRoute | null }) {
                 void restoreFrom(pending);
                 setPending(null);
               }}
-              className="min-h-14 rounded-2xl bg-sunset-500 text-lg font-bold text-white shadow-lg"
+              className="active:bg-sunset-600 active:scale-[0.98] min-h-14 rounded-2xl bg-sunset-500 text-lg font-bold text-white shadow-lg"
             >
               Resume paddle
             </button>
@@ -215,7 +224,7 @@ export function RecordClient({ route }: { route: RecordRoute | null }) {
               clearCheckpoint();
               setPending(null);
             }}
-            className="text-river-200 min-h-12 rounded-2xl border border-river-700 font-semibold"
+            className="text-river-200 active:bg-river-900 min-h-12 rounded-2xl border border-river-700 font-semibold"
           >
             Discard it
           </button>
@@ -241,7 +250,7 @@ export function RecordClient({ route }: { route: RecordRoute | null }) {
           <span className="text-5xl">🛶</span>
           {route ? (
             <div>
-              <h1 className="text-2xl font-extrabold">{route.name}</h1>
+              <h1 className="font-display text-2xl font-extrabold">{route.name}</h1>
               <p className="text-river-300 mt-1 text-sm">
                 {miles(route.distanceM * (route.shape === "out_and_back" ? 2 : 1), 1)} mi
                 {route.shape === "out_and_back" ? " round trip" : ""} ·{" "}
@@ -250,7 +259,7 @@ export function RecordClient({ route }: { route: RecordRoute | null }) {
             </div>
           ) : (
             <div className="flex flex-col items-center gap-3">
-              <h1 className="text-2xl font-extrabold">Free paddle</h1>
+              <h1 className="font-display text-2xl font-extrabold">Free paddle</h1>
               <div className="flex items-center gap-1 rounded-full bg-river-900 p-1">
                 {(["river", "waypoint"] as const).map((t) => (
                   <button
@@ -277,8 +286,7 @@ export function RecordClient({ route }: { route: RecordRoute | null }) {
         <button
           type="button"
           onClick={() => void start()}
-          className="min-h-16 rounded-3xl bg-sunset-500 text-xl font-extrabold text-white shadow-2xl active:bg-sunset-600"
-          style={{ touchAction: "manipulation" }}
+          className="min-h-16 rounded-3xl bg-sunset-500 text-xl font-extrabold text-white shadow-2xl active:scale-[0.98] active:bg-sunset-600"
         >
           START
         </button>
@@ -291,10 +299,7 @@ export function RecordClient({ route }: { route: RecordRoute | null }) {
   const remainingMi = progress ? miles(progress.remainingM) : null;
 
   return (
-    <main
-      className="relative flex h-dvh w-dvw flex-col bg-black text-white"
-      style={{ touchAction: "manipulation" }}
-    >
+    <main className="relative flex h-dvh w-dvw flex-col overscroll-none bg-black text-white">
       {/* next-poi-ahead banner */}
       {nextPoi ? (
         <div className="flex items-center gap-2 border-b border-amber-400/30 bg-black px-4 py-2 text-sm font-bold text-amber-400">
@@ -306,44 +311,44 @@ export function RecordClient({ route }: { route: RecordRoute | null }) {
         </div>
       ) : null}
 
-      {/* status chips */}
-      <div className="flex flex-wrap items-center gap-2 px-4 pt-[max(0.75rem,env(safe-area-inset-top))] pb-2 text-xs font-semibold">
-        <span className="rounded-full bg-white/10 px-2.5 py-1">
+      {/* status chips -- opaque backgrounds + light text for sunlight readability */}
+      <div className="flex flex-wrap items-center gap-2 px-4 pt-[max(0.75rem,env(safe-area-inset-top))] pb-2 text-xs font-bold">
+        <span className="rounded-full bg-white/15 px-2.5 py-1 text-white">
           GPS {gpsAcc != null ? `±${Math.round(gpsAcc)}m` : "…"}
         </span>
         {isAcquiring ? (
-          <span className="rounded-full bg-amber-500/20 px-2.5 py-1 text-amber-300">
+          <span className="rounded-full bg-amber-500/30 px-2.5 py-1 text-amber-200">
             Acquiring…
           </span>
         ) : null}
         {isAutoPaused ? (
-          <span className="rounded-full bg-amber-500/20 px-2.5 py-1 text-amber-300">
+          <span className="rounded-full bg-amber-500/30 px-2.5 py-1 text-amber-200">
             Auto-paused
           </span>
         ) : null}
         {isPaused ? (
-          <span className="rounded-full bg-white/20 px-2.5 py-1">Paused</span>
+          <span className="rounded-full bg-white/25 px-2.5 py-1 text-white">Paused</span>
         ) : null}
         {progress?.offRoute ? (
-          <span className="rounded-full bg-red-500/20 px-2.5 py-1 text-red-300">
+          <span className="rounded-full bg-red-500/30 px-2.5 py-1 text-red-200">
             Off route
           </span>
         ) : null}
         {!wakeLockOk ? (
-          <span className="rounded-full bg-red-500/20 px-2.5 py-1 text-red-300">
+          <span className="rounded-full bg-red-500/30 px-2.5 py-1 text-red-200">
             Screen may sleep
           </span>
         ) : null}
         <button
           type="button"
           onClick={() => setShowMap((v) => !v)}
-          className="ml-auto rounded-full bg-white/10 px-3 py-1"
+          className="ml-auto rounded-full bg-white/15 px-3 py-1 text-white"
         >
           {showMap ? "Stats only" : "Show map"}
         </button>
       </div>
 
-      {/* stats */}
+      {/* stats -- digits are the biggest thing on screen, pure white/amber on near-black */}
       <div className={showMap ? "px-4 py-2" : "flex flex-1 flex-col justify-center px-4"}>
         <div className="grid grid-cols-2 gap-x-4 gap-y-3">
           <Stat label="Distance" value={distanceMi} unit="mi" big />
@@ -382,7 +387,7 @@ export function RecordClient({ route }: { route: RecordRoute | null }) {
           {quickAdd ? (
             <div className="absolute inset-x-0 bottom-0 z-20 flex flex-col gap-2 bg-black/90 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
               <p className="text-xs font-semibold text-white/70">Add a spot here</p>
-              <div className="flex gap-2 overflow-x-auto pb-1">
+              <div className="flex gap-2 overflow-x-auto overscroll-x-contain pb-1">
                 {POI_CATEGORIES.map((c) => (
                   <button
                     key={c.category}
@@ -409,8 +414,25 @@ export function RecordClient({ route }: { route: RecordRoute | null }) {
       ) : null}
 
       {geoError ? (
-        <p className="bg-red-900/60 px-4 py-2 text-center text-xs text-red-200">
-          {geoError}
+        geoErrorCode === GEO_PERMISSION_DENIED ? (
+          <div className="flex flex-col gap-1 bg-red-950/90 px-4 py-3 text-center text-xs text-red-100">
+            <p className="font-bold">Location is blocked</p>
+            <p>
+              iPhone: Settings → Privacy &amp; Security → Location Services →
+              Safari Websites (or the installed app name) → While Using. Then
+              reopen.
+            </p>
+          </div>
+        ) : (
+          <p className="bg-red-900/60 px-4 py-2 text-center text-xs text-red-200">
+            {geoError}
+          </p>
+        )
+      ) : lowAccuracyHint ? (
+        <p className="bg-amber-900/70 px-4 py-2 text-center text-xs text-amber-100">
+          GPS signal is weak (accuracy over 100m for 30+ seconds). On iPhone,
+          try Settings → Privacy &amp; Security → Location Services → Precise
+          Location: On.
         </p>
       ) : null}
 
@@ -420,7 +442,7 @@ export function RecordClient({ route }: { route: RecordRoute | null }) {
           <button
             type="button"
             onClick={resume}
-            className="min-h-14 flex-1 rounded-2xl bg-river-600 text-lg font-bold"
+            className="active:bg-river-700 active:scale-[0.98] min-h-14 flex-1 rounded-2xl bg-river-600 text-lg font-bold"
           >
             Resume
           </button>
@@ -429,7 +451,7 @@ export function RecordClient({ route }: { route: RecordRoute | null }) {
             type="button"
             onClick={pause}
             disabled={isFinished}
-            className="min-h-14 flex-1 rounded-2xl bg-white/10 text-lg font-bold disabled:opacity-40"
+            className="active:bg-white/20 min-h-14 flex-1 rounded-2xl bg-white/10 text-lg font-bold disabled:opacity-40"
           >
             Pause
           </button>
@@ -438,7 +460,7 @@ export function RecordClient({ route }: { route: RecordRoute | null }) {
           type="button"
           onClick={handleFinish}
           disabled={isFinished}
-          className="min-h-14 flex-1 rounded-2xl bg-sunset-500 text-lg font-extrabold text-white active:bg-sunset-600 disabled:opacity-60"
+          className="min-h-14 flex-1 rounded-2xl bg-sunset-500 text-lg font-extrabold text-white active:scale-[0.98] active:bg-sunset-600 disabled:opacity-60"
         >
           {isFinished ? "Saving…" : "Finish"}
         </button>
@@ -465,11 +487,11 @@ function Stat({
       </p>
       <p
         className={`font-extrabold tabular-nums leading-none ${
-          big ? "text-5xl" : "text-3xl"
-        } ${big ? "text-white" : "text-amber-300"}`}
+          big ? "text-[clamp(3rem,11vw,4rem)]" : "text-3xl"
+        } ${big ? "text-white" : "text-amber-200"}`}
       >
         {value}
-        {unit ? <span className="ml-1 text-lg font-bold text-white/50">{unit}</span> : null}
+        {unit ? <span className="ml-1 text-lg font-bold text-white/60">{unit}</span> : null}
       </p>
     </div>
   );

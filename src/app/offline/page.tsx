@@ -26,15 +26,15 @@ export default function OfflinePage() {
 
   return (
     <main className="flex min-h-dvh flex-col items-center justify-center gap-4 bg-river-950 px-6 text-center text-white">
-      <span className="text-5xl">🛶</span>
-      <h1 className="text-xl font-extrabold">You&apos;re offline</h1>
+      <span className="text-5xl">📡</span>
+      <h1 className="font-display text-xl font-extrabold">You&apos;re offline</h1>
       <p className="text-river-300 max-w-xs text-sm">
         This page isn&apos;t available offline. Downloaded routes, the map, and
         your in-progress paddle still work.
       </p>
       <Link
         href="/"
-        className="bg-sunset-500 rounded-xl px-4 py-2 font-semibold text-white"
+        className="bg-sunset-500 active:bg-sunset-600 rounded-xl px-4 py-2 font-semibold text-white"
       >
         Home
       </Link>

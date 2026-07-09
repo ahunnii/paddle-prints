@@ -41,6 +41,19 @@ Deploy with Coolify using `docker-compose.yml`:
 - **Database**: PostgreSQL 16 with PostGIS extension
 - **Tiles**: Caddy server (port 80) serving `michigan.pmtiles` with CORS headers
 
+### Deploying to Coolify
+
+1. **Create the resource.** In Coolify, add a new "Docker Compose" resource pointing at this repo's `docker-compose.yml`. It provisions the three services above as one stack, sharing a project network.
+2. **Set environment variables** on the App service (see the table above): `DATABASE_URL` (point at the compose Postgres service, e.g. `postgresql://user:pass@db:5432/paddle_prints`), `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL` (your public app URL), `INVITE_CODE`, `NEXT_PUBLIC_TILES_URL` (your public tiles subdomain), and `NEXT_PUBLIC_APP_URL`.
+3. **Point subdomains** at the App and Tiles services (e.g. `paddle-prints.app` → App on 3000, `tiles.paddle-prints.app` → Tiles on 80) via Coolify's proxy/domain settings.
+4. **Run migrations** once the App service is up: `pnpm db:migrate` (via Coolify's terminal/exec into the App container, or an SSH tunnel to the DB as below with `drizzle-kit migrate` run locally against it).
+5. **Ship the map tiles.** The `michigan.pmtiles` file isn't built by the compose stack — build it locally (see the tiles build docs) and `scp` it to the Tiles service's persistent volume on the Coolify host, e.g.:
+   ```bash
+   scp tiles/data/michigan.pmtiles user@your-coolify-host:/path/to/tiles-volume/michigan.pmtiles
+   ```
+6. **Load the river routing graph.** `scripts/etl-waterways.sh` needs direct Postgres access, which isn't exposed publicly — open an SSH tunnel to the DB container first, then run the ETL against the tunnel (see "River routing data" below for the exact commands). Budget ~68 MB of DB growth and a few minutes of load time.
+7. **Smoke test**: visit the app subdomain, register with the invite code, confirm the map tiles load and a river route can be drawn.
+
 ### River routing data
 
 Phase 3 needs a routable graph of Michigan rivers so the app can snap two
@@ -95,10 +108,19 @@ Budget ~68 MB of DB growth and a few minutes of load time on prod.
 ## Build Phases
 
 - [x] **Phase 0**: Scaffold + auth setup
-- [ ] **Phase 1**: Interactive map tiles & zoom
-- [ ] **Phase 2**: Waypoint routes & editing
-- [ ] **Phase 3**: River-aware routing & snapping
-- [ ] **Phase 4**: Live trip recording
-- [ ] **Phase 5**: Points of interest (beaches, take-outs)
-- [ ] **Phase 6**: Offline map caching
-- [ ] **Phase 7**: ETA predictions & polish
+- [x] **Phase 1**: Interactive map tiles & zoom
+- [x] **Phase 2**: Waypoint routes & editing
+- [x] **Phase 3**: River-aware routing & snapping
+- [x] **Phase 4**: Live trip recording
+- [x] **Phase 5**: Points of interest (beaches, take-outs)
+- [x] **Phase 6**: Offline map caching
+- [x] **Phase 7**: ETA predictions & polish
+
+## First paddle checklist
+
+Before your first trip on the water:
+
+1. **Install to your Home Screen.** In Safari, tap Share → "Add to Home Screen". Opening Paddle Prints from the Home Screen icon (not a Safari tab) is what unlocks reliable offline storage and background GPS on iOS.
+2. **Allow location, "While Using".** The first time you tap Start, iOS will prompt for location access — allow it. If you ever need to fix this later: Settings → Privacy & Security → Location Services → Paddle Prints → While Using.
+3. **Download your route on WiFi.** Open the route you plan to paddle and tap "Download for offline" before you leave signal — it caches the map tiles for that corridor.
+4. **Airplane-mode test.** With the route downloaded, switch the phone to Airplane Mode and open the route again: the map should still render and Start should still work. This is the real test that you're ready to paddle somewhere with no signal — turn Airplane Mode back off before you actually go.

@@ -3,6 +3,8 @@
 @theme {
   --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif,
     "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+  /* Rounded, friendly display face -- headings only (`font-display`). Body text stays --font-sans. */
+  --font-display: var(--font-nunito), ui-rounded, "Segoe UI", var(--font-sans);
 
   /* River blues -- brand primary, evokes the water */
   --color-river-50: #eff9fc;
@@ -29,4 +31,18 @@
   --color-sunset-800: #9a3412;
   --color-sunset-900: #7c2d12;
   --color-sunset-950: #431407;
+}
+
+/*
+ * Every tappable control gets `touch-action: manipulation` globally, killing the ~300ms double-tap-
+ * to-zoom delay Safari otherwise imposes on iOS, plus a transparent tap highlight instead of the
+ * default grey flash. Buttons/links inside the MapLibre canvas are excluded (map gestures need pan
+ * and pinch-zoom, so `manipulation`, which permits those, is fine there too -- MapLibre manages its
+ * own canvas touch handling separately and isn't affected by this rule on surrounding UI).
+ */
+a,
+button,
+[role="button"] {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }

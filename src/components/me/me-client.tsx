@@ -18,10 +18,24 @@ import {
 import { db } from "~/lib/offline/db";
 import { SignOutButton } from "~/app/_components/sign-out-button";
 
+const MPS_TO_MPH = 2.2369363;
+
+export interface PaceStat {
+  tripType: "river" | "waypoint";
+  count: number;
+  avgSpeedMps: number;
+}
+
+function tripTypeLabel(tripType: PaceStat["tripType"]) {
+  return tripType === "river" ? "🏞️ River" : "🌊 Flat water";
+}
+
 export function MeClient({
   user,
+  paceStats,
 }: {
   user: { name: string; email: string };
+  paceStats: PaceStat[];
 }) {
   const storage = useStorageSummary();
   const pending = usePendingCounts();
@@ -53,9 +67,40 @@ export function MeClient({
         </div>
 
         <div>
-          <h1 className="text-2xl font-extrabold tracking-tight">{user.name}</h1>
+          <h1 className="font-display text-2xl font-extrabold tracking-tight">{user.name}</h1>
           <p className="text-river-300 text-sm">{user.email}</p>
         </div>
+
+        {/* Your pace --------------------------------------------------------- */}
+        <section className="flex flex-col gap-3 rounded-3xl bg-white/10 p-5">
+          <h2 className="text-river-100 text-xs font-bold uppercase tracking-widest">
+            Your pace
+          </h2>
+          {paceStats.length === 0 ? (
+            <p className="text-river-300 text-sm">
+              🛶 Log a paddle and your average pace will show up here.
+            </p>
+          ) : (
+            <div className="grid grid-cols-2 gap-2">
+              {paceStats.map((s) => (
+                <div key={s.tripType} className="rounded-2xl bg-river-900/50 p-3">
+                  <p className="text-river-300 text-xs font-medium">
+                    {tripTypeLabel(s.tripType)}
+                  </p>
+                  <p className="font-display text-2xl font-extrabold tabular-nums text-white">
+                    {(s.avgSpeedMps * MPS_TO_MPH).toFixed(1)}
+                    <span className="text-river-300 ml-1 text-sm font-medium">
+                      mph
+                    </span>
+                  </p>
+                  <p className="text-river-400 text-xs">
+                    {s.count} paddle{s.count === 1 ? "" : "s"}
+                  </p>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
 
         {/* Pending sync ---------------------------------------------------- */}
         <section className="flex flex-col gap-3 rounded-3xl bg-white/10 p-5">
@@ -67,7 +112,7 @@ export function MeClient({
               type="button"
               onClick={() => void handleSync()}
               disabled={syncing || pending.total === 0}
-              className="bg-sunset-500 rounded-full px-3 py-1 text-xs font-bold text-white disabled:opacity-40"
+              className="bg-sunset-500 active:bg-sunset-600 rounded-full px-3 py-1 text-xs font-bold text-white disabled:opacity-40"
             >
               {syncing ? "Syncing…" : "Sync now"}
             </button>
@@ -96,7 +141,7 @@ export function MeClient({
                   <button
                     type="button"
                     onClick={() => void clearDeadLetter(d.id, d.kind)}
-                    className="shrink-0 underline"
+                    className="active:text-red-300 shrink-0 underline"
                   >
                     Discard
                   </button>
@@ -155,7 +200,7 @@ export function MeClient({
                       <button
                         type="button"
                         onClick={() => void deleteTrip(t.routeId)}
-                        className="shrink-0 rounded-lg bg-red-500/20 px-3 py-1.5 text-xs font-bold text-red-200"
+                        className="active:bg-red-500/30 shrink-0 rounded-lg bg-red-500/20 px-3 py-1.5 text-xs font-bold text-red-200"
                       >
                         Delete
                       </button>

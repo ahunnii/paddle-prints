@@ -34,11 +34,11 @@ export default function LoginPage() {
   };
 
   return (
-    <main className="from-river-800 to-river-950 flex min-h-screen items-center justify-center bg-gradient-to-b px-4">
+    <main className="from-river-800 to-river-950 flex min-h-dvh items-center justify-center bg-gradient-to-b px-4">
       <div className="w-full max-w-sm rounded-3xl bg-white p-8 shadow-xl">
         <div className="mb-6 flex flex-col items-center gap-2 text-center">
           <span className="text-4xl">🛶</span>
-          <h1 className="text-river-950 text-2xl font-extrabold tracking-tight">
+          <h1 className="text-river-950 font-display text-2xl font-extrabold tracking-tight">
             Welcome back
           </h1>
           <p className="text-river-600 text-sm">
@@ -92,7 +92,7 @@ export default function LoginPage() {
           <button
             type="submit"
             disabled={isPending}
-            className="bg-sunset-500 hover:bg-sunset-600 mt-2 rounded-full px-6 py-2.5 font-semibold text-white transition-colors disabled:opacity-60"
+            className="bg-sunset-500 hover:bg-sunset-600 active:bg-sunset-600 active:scale-[0.98] mt-2 rounded-full px-6 py-2.5 font-semibold text-white transition-colors disabled:opacity-60"
           >
             {isPending ? "Signing in..." : "Sign in"}
           </button>

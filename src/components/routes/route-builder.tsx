@@ -9,9 +9,9 @@ import maplibregl, {
 import { skipToken } from "@tanstack/react-query";
 import { length as turfLength } from "@turf/length";
 import { lineString as turfLineString } from "@turf/helpers";
-import Link from "next/link";
 
 import { BaseMap } from "~/components/map/base-map";
+import { FloatingHeader } from "~/components/layout/floating-header";
 import { api } from "~/trpc/react";
 
 type RouteShape = "one_way" | "out_and_back";
@@ -379,20 +379,9 @@ export function RouteBuilder() {
         </div>
       ) : null}
 
-      <div className="pointer-events-none absolute inset-x-0 top-0 flex justify-center p-4">
-        <div className="pointer-events-auto flex items-center gap-3 rounded-full bg-white/90 px-4 py-2 shadow-lg backdrop-blur">
-          <Link
-            href="/routes"
-            className="text-river-700 hover:text-river-900 text-sm font-semibold"
-          >
-            ← Back
-          </Link>
-          <span className="text-river-200">|</span>
-          <span className="text-river-900 text-sm font-medium">New route</span>
-        </div>
-      </div>
+      <FloatingHeader backHref="/routes" title="New route" />
 
-      <div className="pointer-events-none absolute inset-x-0 top-16 flex justify-center p-2">
+      <div className="pointer-events-none absolute inset-x-0 top-[calc(4rem+env(safe-area-inset-top))] flex justify-center p-2">
         <div className="pointer-events-auto flex items-center gap-1 rounded-full bg-white/90 p-1 shadow-lg backdrop-blur">
           <button
             type="button"

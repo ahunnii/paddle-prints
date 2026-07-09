@@ -138,6 +138,33 @@ export const paddlesRouter = createTRPCRouter({
       return row;
     }),
 
+  /**
+   * The signed-in paddler's average moving speed per trip type (river / lake-open-water), for the
+   * /me "Your pace" section. Only types they've actually logged a paddle for are returned.
+   */
+  myStats: protectedProcedure.query(async ({ ctx }) => {
+    const rows = await ctx.db
+      .select({
+        tripType: paddles.tripType,
+        avgSpeedMps: paddles.avgSpeedMps,
+      })
+      .from(paddles)
+      .where(eq(paddles.userId, ctx.session.user.id));
+
+    const byType = new Map<string, number[]>();
+    for (const row of rows) {
+      const list = byType.get(row.tripType) ?? [];
+      list.push(row.avgSpeedMps);
+      byType.set(row.tripType, list);
+    }
+
+    return [...byType.entries()].map(([tripType, speeds]) => ({
+      tripType: tripType as (typeof routeType.enumValues)[number],
+      count: speeds.length,
+      avgSpeedMps: speeds.reduce((sum, s) => sum + s, 0) / speeds.length,
+    }));
+  }),
+
   /** The signed-in paddler's own paddles, newest first. */
   mine: protectedProcedure.query(async ({ ctx }) => {
     return ctx.db

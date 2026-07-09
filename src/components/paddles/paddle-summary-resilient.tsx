@@ -10,6 +10,7 @@
 import Link from "next/link";
 import { useLiveQuery } from "dexie-react-hooks";
 
+import { FloatingHeader } from "~/components/layout/floating-header";
 import { PaddleMap } from "~/components/paddles/paddle-map";
 import { db } from "~/lib/offline/db";
 
@@ -90,14 +91,14 @@ export function PaddleSummaryResilient({
     return (
       <main className="flex min-h-dvh flex-col items-center justify-center gap-4 bg-river-950 px-6 text-center text-white">
         <span className="text-5xl">🛶</span>
-        <h1 className="text-xl font-extrabold">Paddle not found here</h1>
+        <h1 className="font-display text-xl font-extrabold">Paddle not found here</h1>
         <p className="text-river-300 max-w-xs text-sm">
           This paddle isn&apos;t on the server or on this device. It may belong
           to another paddler, or the link is wrong.
         </p>
         <Link
           href="/"
-          className="bg-sunset-500 rounded-xl px-4 py-2 font-semibold text-white"
+          className="bg-sunset-500 active:bg-sunset-600 rounded-xl px-4 py-2 font-semibold text-white"
         >
           Home
         </Link>
@@ -116,22 +117,13 @@ export function PaddleSummaryResilient({
         className="h-full w-full"
       />
 
-      <div className="pointer-events-none absolute inset-x-0 top-0 flex justify-center p-4">
-        <div className="pointer-events-auto flex items-center gap-3 rounded-full bg-white/90 px-4 py-2 shadow-lg backdrop-blur">
-          <Link
-            href="/"
-            className="text-river-700 hover:text-river-900 text-sm font-semibold"
-          >
-            ← Home
-          </Link>
-        </div>
-      </div>
+      <FloatingHeader backHref="/" backLabel="Home" />
 
       <div className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-center p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
         <div className="pointer-events-auto flex w-full max-w-md flex-col gap-4 rounded-3xl bg-white/95 p-5 shadow-2xl backdrop-blur">
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="text-river-950 text-xl font-extrabold tracking-tight">
+              <h1 className="text-river-950 font-display text-xl font-extrabold tracking-tight">
                 {data.userName ?? "Someone"} paddled{" "}
                 {data.routeId && data.routeName ? (
                   <Link

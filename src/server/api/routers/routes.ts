@@ -1,11 +1,17 @@
 import { TRPCError } from "@trpc/server";
-import { desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { z } from "zod";
 
+import { DEFAULT_HISTORICAL_SPEED_MPS } from "~/lib/recorder/constants";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { user } from "~/server/db/auth-schema";
 import { paddles, pois, routeShape, routeType, routes } from "~/server/db/schema";
+
+/** Mean of a non-empty array of speeds. Callers only invoke this after checking `.length > 0`. */
+function avgSpeed(speeds: number[]): number {
+  return speeds.reduce((sum, s) => sum + s, 0) / speeds.length;
+}
 
 /** Second join alias for `user` -- corridor POIs need their own creator, distinct from the route's. */
 const poiCreator = alias(user, "poi_creator");
@@ -146,6 +152,93 @@ export const routesRouter = createTRPCRouter({
         .limit(10);
 
       return { ...route, pois: nearbyPois, paddles: recentPaddles };
+    }),
+
+  /**
+   * A personal ETA estimate for this route, in three tiers of decreasing specificity:
+   *  1. "exact"   -- the user has paddled THIS route before: average their own `avgSpeedMps` on it.
+   *  2. "typeAvg" -- no history on this route, but they have paddles of the same `tripType`
+   *                  (river vs. lake/open-water): average across those instead.
+   *  3. "default" -- no history at all: fall back to a generic cruising speed.
+   * `estimates` always includes both one-way and round-trip seconds; the caller picks based on the
+   * route's `shape`.
+   */
+  etaForUser: protectedProcedure
+    .input(z.object({ routeId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      const [route] = await ctx.db
+        .select({ distanceM: routes.distanceM, type: routes.type })
+        .from(routes)
+        .where(eq(routes.id, input.routeId));
+
+      if (!route) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Route not found" });
+      }
+
+      const estimatesFor = (speedMps: number) => {
+        const oneWayS = route.distanceM / speedMps;
+        return { oneWayS, roundTripS: oneWayS * 2 };
+      };
+
+      // Tier 1: the user's own history on this exact route, newest first.
+      const exactPaddles = await ctx.db
+        .select({
+          startedAt: paddles.startedAt,
+          elapsedS: paddles.elapsedS,
+          movingS: paddles.movingS,
+          distanceM: paddles.distanceM,
+          avgSpeedMps: paddles.avgSpeedMps,
+        })
+        .from(paddles)
+        .where(
+          and(
+            eq(paddles.routeId, input.routeId),
+            eq(paddles.userId, ctx.session.user.id),
+          ),
+        )
+        .orderBy(desc(paddles.startedAt));
+
+      if (exactPaddles.length > 0) {
+        const speedMps = avgSpeed(exactPaddles.map((p) => p.avgSpeedMps));
+        return {
+          source: "exact" as const,
+          speedMps,
+          estimates: estimatesFor(speedMps),
+          pastTimes: exactPaddles.slice(0, 5).map((p) => ({
+            startedAt: p.startedAt,
+            elapsedS: p.elapsedS,
+            movingS: p.movingS,
+            distanceM: p.distanceM,
+          })),
+        };
+      }
+
+      // Tier 2: the user's history on any route of the same trip type (river vs. lake/open-water).
+      const typePaddles = await ctx.db
+        .select({ avgSpeedMps: paddles.avgSpeedMps })
+        .from(paddles)
+        .where(
+          and(
+            eq(paddles.userId, ctx.session.user.id),
+            eq(paddles.tripType, route.type),
+          ),
+        );
+
+      if (typePaddles.length > 0) {
+        const speedMps = avgSpeed(typePaddles.map((p) => p.avgSpeedMps));
+        return {
+          source: "typeAvg" as const,
+          speedMps,
+          estimates: estimatesFor(speedMps),
+        };
+      }
+
+      // Tier 3: no history anywhere -- generic default.
+      return {
+        source: "default" as const,
+        speedMps: DEFAULT_HISTORICAL_SPEED_MPS,
+        estimates: estimatesFor(DEFAULT_HISTORICAL_SPEED_MPS),
+      };
     }),
 
   delete: protectedProcedure

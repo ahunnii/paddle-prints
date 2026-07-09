@@ -3,10 +3,13 @@ import { redirect } from "next/navigation";
 
 import { MeClient } from "~/components/me/me-client";
 import { auth } from "~/server/auth";
+import { api } from "~/trpc/server";
 
 export default async function MePage() {
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session) redirect("/login");
+
+  const paceStats = await api.paddles.myStats();
 
   return (
     <MeClient
@@ -14,6 +17,7 @@ export default async function MePage() {
         name: session.user.name,
         email: session.user.email,
       }}
+      paceStats={paceStats}
     />
   );
 }

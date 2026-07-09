@@ -10,7 +10,7 @@ export function MeLink() {
   return (
     <Link
       href="/me"
-      className="border-river-300 text-river-100 hover:bg-river-800 relative flex min-h-9 items-center gap-1.5 rounded-full border px-4 py-2 text-sm font-semibold transition-colors"
+      className="border-river-300 text-river-100 hover:bg-river-800 active:bg-river-800 relative flex min-h-9 items-center gap-1.5 rounded-full border px-4 py-2 text-sm font-semibold transition-colors"
     >
       Me
       {pending.total > 0 ? (
