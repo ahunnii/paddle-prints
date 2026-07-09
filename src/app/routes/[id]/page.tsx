@@ -127,14 +127,12 @@ export default async function RouteDetailPage({
           </div>
 
           <div className="flex flex-col gap-2">
-            <button
-              type="button"
-              disabled
-              title="Phase 4"
-              className="min-h-11 cursor-not-allowed rounded-xl bg-river-100 font-semibold text-river-400"
+            <Link
+              href={`/record?route=${route.id}`}
+              className="bg-sunset-500 hover:bg-sunset-600 flex min-h-11 items-center justify-center rounded-xl font-semibold text-white shadow-lg transition-colors"
             >
-              Start paddle (Phase 4)
-            </button>
+              Start paddle
+            </Link>
             <button
               type="button"
               disabled
