@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  osm2pgrouting mapping config for Paddle Prints river routing.
+
+  Maps linear OSM waterways (river / stream / canal) to routable "way"
+  classes so osm2pgrouting will load them into the `ways` graph table and
+  split them at shared OSM nodes (this is what makes confluences routable:
+  a tributary's terminal node lies on the main-stem way, so osm2pgrouting
+  cuts the main stem there and the two ways share a graph vertex).
+
+  Only linear ways are handled here. waterway=riverbank (bank *polygons*)
+  is deliberately NOT included and is also excluded upstream by the osmium
+  tags-filter — those are areas, not routable centerlines.
+
+  priority / maxspeed values are required by osm2pgrouting but are NOT used
+  downstream: the post-process step (etl-waterways.sql) recomputes the real
+  metric cost as ST_Length(geom::geography) in metres, so paddling cost is
+  true geodesic length regardless of these placeholders. We give every class
+  the same priority/maxspeed because, for snapping two tapped points to the
+  nearest river and measuring along-river distance, all navigable waterway
+  types are treated equally in v1.
+-->
+<configuration>
+  <tag_name name="waterway" id="1">
+    <tag_value name="river"  id="101" priority="1.0" maxspeed="5.0" />
+    <tag_value name="stream" id="102" priority="1.0" maxspeed="5.0" />
+    <tag_value name="canal"  id="103" priority="1.0" maxspeed="5.0" />
+  </tag_name>
+</configuration>

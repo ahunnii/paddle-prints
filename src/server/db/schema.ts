@@ -1,4 +1,18 @@
-import { pgEnum, pgTableCreator } from "drizzle-orm/pg-core";
+import { relations } from "drizzle-orm";
+import {
+  index,
+  integer,
+  jsonb,
+  pgEnum,
+  pgTableCreator,
+  real,
+  text,
+  timestamp,
+  uuid,
+} from "drizzle-orm/pg-core";
+
+import { geoPoint, lineString } from "./geo";
+import { user } from "./auth-schema";
 
 /**
  * This is an example of how to use the multi-project schema feature of Drizzle ORM. Use the same
@@ -30,3 +44,101 @@ export const poiCategory = pgEnum("poi_category", [
   "scenic",
   "other",
 ]);
+
+/**
+ * A saved paddle route -- either a river run or a waypoint-built lake/open-water route.
+ *
+ * `geom` stores only the OUTBOUND line; `distanceM` is the one-way distance. For
+ * `shape: "out_and_back"` routes, the UI doubles the distance for display.
+ */
+export const routes = createTable(
+  "routes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    name: text("name").notNull(),
+    type: routeType("type").notNull(),
+    shape: routeShape("shape").notNull().default("one_way"),
+    geom: lineString("geom").notNull(),
+    distanceM: real("distance_m").notNull(),
+    createdBy: text("created_by")
+      .notNull()
+      .references(() => user.id),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [index("routes_geom_idx").using("gist", table.geom)],
+);
+
+/**
+ * A logged paddle trip, optionally linked to a saved route. `id` has no default -- the client
+ * generates it (uuid) at trip-start time so trips can be created offline and synced idempotently.
+ */
+export const paddles = createTable(
+  "paddles",
+  {
+    id: uuid("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id),
+    routeId: uuid("route_id").references(() => routes.id, {
+      onDelete: "set null",
+    }),
+    tripType: routeType("trip_type").notNull(),
+    startedAt: timestamp("started_at").notNull(),
+    elapsedS: integer("elapsed_s").notNull(),
+    movingS: integer("moving_s").notNull(),
+    distanceM: real("distance_m").notNull(),
+    avgSpeedMps: real("avg_speed_mps").notNull(),
+    trackGeom: lineString("track_geom"),
+    trackJson: jsonb("track_json"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("paddles_userId_idx").on(table.userId),
+    index("paddles_routeId_idx").on(table.routeId),
+  ],
+);
+
+/**
+ * A point of interest logged by a user (hazard, wildlife sighting, dock, etc). `id` has no
+ * default -- client-generated for the same offline-idempotency reason as `paddles.id`.
+ */
+export const pois = createTable(
+  "pois",
+  {
+    id: uuid("id").primaryKey(),
+    createdBy: text("created_by")
+      .notNull()
+      .references(() => user.id),
+    category: poiCategory("category").notNull(),
+    note: text("note"),
+    geom: geoPoint("geom").notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [index("pois_geom_idx").using("gist", table.geom)],
+);
+
+export const routesRelations = relations(routes, ({ one, many }) => ({
+  creator: one(user, {
+    fields: [routes.createdBy],
+    references: [user.id],
+  }),
+  paddles: many(paddles),
+}));
+
+export const paddlesRelations = relations(paddles, ({ one }) => ({
+  user: one(user, {
+    fields: [paddles.userId],
+    references: [user.id],
+  }),
+  route: one(routes, {
+    fields: [paddles.routeId],
+    references: [routes.id],
+  }),
+}));
+
+export const poisRelations = relations(pois, ({ one }) => ({
+  creator: one(user, {
+    fields: [pois.createdBy],
+    references: [user.id],
+  }),
+}));

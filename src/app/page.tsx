@@ -23,12 +23,26 @@ export default async function Home() {
           Your crew&apos;s route feed is paddling this way soon &mdash; check
           back after Phase 2.
         </p>
-        <Link
-          href="/map"
-          className="bg-sunset-500 hover:bg-sunset-600 flex items-center gap-2 rounded-full px-6 py-3 font-semibold text-white shadow-lg transition-colors"
-        >
-          🗺️ Explore the map
-        </Link>
+        <div className="flex flex-wrap items-center justify-center gap-3">
+          <Link
+            href="/map"
+            className="bg-sunset-500 hover:bg-sunset-600 flex items-center gap-2 rounded-full px-6 py-3 font-semibold text-white shadow-lg transition-colors"
+          >
+            🗺️ Explore the map
+          </Link>
+          <Link
+            href="/routes"
+            className="border-river-200 text-river-100 hover:bg-river-800 flex items-center gap-2 rounded-full border px-6 py-3 font-semibold shadow-lg transition-colors"
+          >
+            🛶 Routes
+          </Link>
+          <Link
+            href="/routes/new"
+            className="border-river-200 text-river-100 hover:bg-river-800 flex items-center gap-2 rounded-full border px-6 py-3 font-semibold shadow-lg transition-colors"
+          >
+            ➕ New route
+          </Link>
+        </div>
         <SignOutButton />
       </div>
     </main>

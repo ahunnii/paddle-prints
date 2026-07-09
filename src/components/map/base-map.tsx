@@ -26,16 +26,26 @@ interface BaseMapProps {
   className?: string;
   /** Called once the map instance has been created. */
   onMap?: (map: MapLibreMap) => void;
+  /** Initial map center. Defaults to a Michigan-wide view. */
+  center?: LngLatLike;
+  /** Initial map zoom. Defaults to a Michigan-wide view. */
+  zoom?: number;
 }
 
 export function BaseMap({
   styleUrl = "/map/style.json",
   className,
   onMap,
+  center = MICHIGAN_CENTER,
+  zoom = MICHIGAN_ZOOM,
 }: BaseMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const onMapRef = useRef(onMap);
   onMapRef.current = onMap;
+  // Captured once at mount time via refs -- changing `center`/`zoom` on a re-render should not
+  // recreate or re-fly the map (same pattern as `onMapRef` above).
+  const centerRef = useRef(center);
+  const zoomRef = useRef(zoom);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -73,8 +83,8 @@ export function BaseMap({
       map = new maplibregl.Map({
         container,
         style,
-        center: MICHIGAN_CENTER,
-        zoom: MICHIGAN_ZOOM,
+        center: centerRef.current,
+        zoom: zoomRef.current,
         maxBounds: MICHIGAN_BOUNDS,
         attributionControl: false,
       });

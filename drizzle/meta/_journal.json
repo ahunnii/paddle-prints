@@ -15,6 +15,13 @@
       "when": 1783612874981,
       "tag": "0001_outgoing_xavin",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1783615929237,
+      "tag": "0002_handy_scrambler",
+      "breakpoints": true
     }
   ]
 }
