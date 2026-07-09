@@ -16,6 +16,14 @@ import { useRecorder } from "~/lib/recorder/use-recorder";
 const IS_PROD = process.env.NODE_ENV === "production";
 
 function OfflineBootstrap() {
+  const { serwist } = useSerwist();
+
+  // SerwistProvider's automatic registration has proven unreliable (observed: instance
+  // created but never registered). register() is idempotent, so call it explicitly.
+  useEffect(() => {
+    if (IS_PROD && serwist) void serwist.register();
+  }, [serwist]);
+
   useEffect(() => {
     // Drain anything queued from a previous session as soon as we load.
     void syncQueue();

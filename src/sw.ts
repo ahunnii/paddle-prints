@@ -47,8 +47,22 @@ const mapCaching: RuntimeCaching[] = [
   },
 ];
 
+const manifest = self.__SW_MANIFEST ?? [];
+
+// The fallbacks option serves entries via matchPrecache(), but @serwist/next's injected
+// manifest only contains static build assets — the /offline HTML document must be added to
+// the precache explicitly or offline navigations 404. The revision is a deterministic hash
+// of the manifest: stable across SW restarts, changed on every build (so the cached shell
+// never references stale hashed chunks).
+const offlineRevision = (() => {
+  const s = JSON.stringify(manifest);
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+  return String(h >>> 0);
+})();
+
 const serwist = new Serwist({
-  precacheEntries: self.__SW_MANIFEST,
+  precacheEntries: [...manifest, { url: "/offline", revision: offlineRevision }],
   skipWaiting: false,
   clientsClaim: true,
   navigationPreload: true,
