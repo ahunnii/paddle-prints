@@ -31,11 +31,12 @@ services:
       - pgdata:/var/lib/postgresql/data
 
   tiles:
-    image: caddy:2-alpine
+    build:
+      context: .
+      dockerfile: deploy/tiles.Dockerfile
     restart: unless-stopped
     volumes:
       - tilesdata:/srv
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
 
 volumes:
   pgdata:
