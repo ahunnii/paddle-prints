@@ -244,9 +244,30 @@ export const routesRouter = createTRPCRouter({
   delete: protectedProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
+      const [route] = await ctx.db
+        .select({ createdBy: routes.createdBy })
+        .from(routes)
+        .where(eq(routes.id, input.id));
+
+      if (!route) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Route not found" });
+      }
+
+      if (route.createdBy !== ctx.session.user.id) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Only the route's creator can delete it",
+        });
+      }
+
       const [deleted] = await ctx.db
         .delete(routes)
-        .where(eq(routes.id, input.id))
+        .where(
+          and(
+            eq(routes.id, input.id),
+            eq(routes.createdBy, ctx.session.user.id),
+          ),
+        )
         .returning({ id: routes.id });
 
       if (!deleted) {

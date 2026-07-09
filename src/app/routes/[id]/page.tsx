@@ -162,7 +162,9 @@ export default async function RouteDetailPage({
               Start paddle
             </Link>
             <DownloadTripButton routeId={route.id} />
-            <DeleteRouteButton routeId={route.id} />
+            {session.user.id === route.createdBy ? (
+              <DeleteRouteButton routeId={route.id} />
+            ) : null}
           </div>
         </div>
       </div>

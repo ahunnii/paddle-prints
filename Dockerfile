@@ -21,8 +21,15 @@ FROM base AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
+# NEXT_PUBLIC_* values are inlined into the client bundle at build time, so they must be
+# provided as build args — runtime env vars are too late for anything the browser reads.
+ARG NEXT_PUBLIC_TILES_URL
+ARG NEXT_PUBLIC_APP_URL
+ENV NEXT_PUBLIC_TILES_URL=$NEXT_PUBLIC_TILES_URL
+ENV NEXT_PUBLIC_APP_URL=$NEXT_PUBLIC_APP_URL
 ENV SKIP_ENV_VALIDATION=1
 ENV NEXT_TELEMETRY_DISABLED=1
+ENV CI=true
 RUN pnpm build
 
 # ---- runner: minimal runtime image ----

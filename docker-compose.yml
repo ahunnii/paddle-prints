@@ -1,6 +1,10 @@
 services:
   app:
-    build: .
+    build:
+      context: .
+      args:
+        NEXT_PUBLIC_TILES_URL: ${NEXT_PUBLIC_TILES_URL}
+        NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL}
     restart: unless-stopped
     environment:
       DATABASE_URL: ${DATABASE_URL}
@@ -8,6 +12,7 @@ services:
       BETTER_AUTH_URL: ${BETTER_AUTH_URL}
       INVITE_CODE: ${INVITE_CODE}
       NEXT_PUBLIC_TILES_URL: ${NEXT_PUBLIC_TILES_URL}
+      NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL}
     depends_on:
       - db
 
@@ -18,6 +23,10 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB:-paddle-prints}
+    ports:
+      # Bound to the host's loopback only — lets you reach Postgres through an SSH
+      # tunnel (for the waterway ETL and maintenance) without exposing it publicly.
+      - "127.0.0.1:55432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
 
