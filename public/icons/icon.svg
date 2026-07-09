@@ -1,0 +1,13 @@
+<svg viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <!-- Rounded square background in river blue -->
+  <rect width="512" height="512" rx="100" fill="#1580b2"/>
+
+  <!-- Sun circle in sunset orange -->
+  <circle cx="320" cy="180" r="45" fill="#f97316"/>
+
+  <!-- Paddle shaft in white -->
+  <rect x="228" y="120" width="56" height="280" rx="28" fill="white"/>
+
+  <!-- Paddle blade (top) in white -->
+  <ellipse cx="256" cy="100" rx="70" ry="50" fill="white"/>
+</svg>

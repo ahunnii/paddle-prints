@@ -1,0 +1,13 @@
+<svg viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <!-- Rounded square background in river blue, scaled to fit safe area (80% of canvas) -->
+  <rect x="51.2" y="51.2" width="409.6" height="409.6" rx="80" fill="#1580b2"/>
+
+  <!-- Sun circle in sunset orange, scaled and repositioned -->
+  <circle cx="345.6" cy="195.2" r="36" fill="#f97316"/>
+
+  <!-- Paddle shaft in white, scaled and repositioned -->
+  <rect x="243.2" y="147.2" width="44.8" height="224" rx="22.4" fill="white"/>
+
+  <!-- Paddle blade (top) in white, scaled and repositioned -->
+  <ellipse cx="265.6" cy="132.8" rx="56" ry="40" fill="white"/>
+</svg>

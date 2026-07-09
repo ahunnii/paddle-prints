@@ -1,0 +1,16 @@
+:80 {
+	root /srv
+	file_server
+
+	# CORS headers for tile serving
+	header Access-Control-Allow-Origin "*"
+	header Access-Control-Allow-Methods "GET, HEAD, OPTIONS"
+	header Access-Control-Allow-Headers "Range, If-Match, If-None-Match"
+	header Access-Control-Expose-Headers "ETag, Accept-Ranges, Content-Range, Content-Length"
+
+	# Cache control for immutable tile assets
+	@pmtiles {
+		path *.pmtiles
+	}
+	header @pmtiles Cache-Control "public, max-age=31536000, immutable"
+}

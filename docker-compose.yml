@@ -1,0 +1,33 @@
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
+      BETTER_AUTH_URL: ${BETTER_AUTH_URL}
+      INVITE_CODE: ${INVITE_CODE}
+      NEXT_PUBLIC_TILES_URL: ${NEXT_PUBLIC_TILES_URL}
+    depends_on:
+      - db
+
+  db:
+    image: pgrouting/pgrouting:16-3.5-4.0
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-paddle-prints}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  tiles:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    volumes:
+      - tilesdata:/srv
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+
+volumes:
+  pgdata:
+  tilesdata:

@@ -1,0 +1,32 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif,
+    "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+
+  /* River blues -- brand primary, evokes the water */
+  --color-river-50: #eff9fc;
+  --color-river-100: #daf0f7;
+  --color-river-200: #b9e2ef;
+  --color-river-300: #88cde2;
+  --color-river-400: #4fb0cd;
+  --color-river-500: #2b93b3;
+  --color-river-600: #1f7796;
+  --color-river-700: #1e6079;
+  --color-river-800: #205065;
+  --color-river-900: #1e4356;
+  --color-river-950: #112a38;
+
+  /* Sunset oranges -- brand accent, evokes golden-hour paddles */
+  --color-sunset-50: #fff8ed;
+  --color-sunset-100: #ffefd4;
+  --color-sunset-200: #ffdaa8;
+  --color-sunset-300: #ffbf70;
+  --color-sunset-400: #ff9c37;
+  --color-sunset-500: #f97316;
+  --color-sunset-600: #ea580c;
+  --color-sunset-700: #c2410c;
+  --color-sunset-800: #9a3412;
+  --color-sunset-900: #7c2d12;
+  --color-sunset-950: #431407;
+}
