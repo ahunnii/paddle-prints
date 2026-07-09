@@ -2,6 +2,7 @@ import { headers } from "next/headers";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
+import { DownloadedBadge } from "~/components/offline/downloaded-badge";
 import { auth } from "~/server/auth";
 import { api } from "~/trpc/server";
 
@@ -65,8 +66,9 @@ export default async function RoutesPage() {
                 >
                   <span className="text-3xl">{typeIcon(route.type)}</span>
                   <div className="flex flex-1 flex-col">
-                    <span className="text-river-950 font-semibold">
+                    <span className="text-river-950 flex items-center gap-2 font-semibold">
                       {route.name}
+                      <DownloadedBadge routeId={route.id} />
                     </span>
                     <span className="text-river-600 text-sm">
                       {formatDistance(route.distanceM, route.shape)} &middot;{" "}

@@ -322,9 +322,12 @@ export const useRecorder = create<RecorderStore>((set, get) => {
   };
 });
 
-/** Read (without subscribing) any live checkpoint saved for a paddle. */
-export function readLiveCheckpoint(): Checkpoint | null {
-  const cp = checkpointStore.load();
+/**
+ * Read any live checkpoint saved for a paddle. Async because the durable copy lives in IndexedDB
+ * (Dexie): after a reload the in-memory shadow is empty until `hydrate()` pulls it back.
+ */
+export async function readLiveCheckpoint(): Promise<Checkpoint | null> {
+  const cp = await checkpointStore.hydrate();
   return isLiveCheckpoint(cp) ? cp : null;
 }
 

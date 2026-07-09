@@ -8,6 +8,12 @@
       "port": 3000
     },
     {
+      "name": "prod",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["start"],
+      "port": 3000
+    },
+    {
       "name": "tiles",
       "runtimeExecutable": "pnpm",
       "runtimeArgs": ["tiles:serve"],

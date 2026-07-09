@@ -4,6 +4,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 
 import { DeleteRouteButton } from "~/components/routes/delete-route-button";
+import { DownloadTripButton } from "~/components/offline/download-trip-button";
 import { RouteMap } from "~/components/routes/route-map";
 import { poiHeadline, poiMeta } from "~/lib/pois";
 import { auth } from "~/server/auth";
@@ -150,14 +151,7 @@ export default async function RouteDetailPage({
             >
               Start paddle
             </Link>
-            <button
-              type="button"
-              disabled
-              title="Phase 6"
-              className="min-h-11 cursor-not-allowed rounded-xl bg-river-100 font-semibold text-river-400"
-            >
-              Download for offline (Phase 6)
-            </button>
+            <DownloadTripButton routeId={route.id} />
             <DeleteRouteButton routeId={route.id} />
           </div>
         </div>

@@ -2,7 +2,8 @@ import { headers } from "next/headers";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
-import { SignOutButton } from "~/app/_components/sign-out-button";
+import { InstallNudge } from "~/components/offline/install-nudge";
+import { MeLink } from "~/components/offline/me-link";
 import { auth } from "~/server/auth";
 import { api } from "~/trpc/server";
 
@@ -32,7 +33,7 @@ export default async function Home() {
               Ahoy, {session.user.name}
             </h1>
           </div>
-          <SignOutButton />
+          <MeLink />
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
@@ -61,6 +62,8 @@ export default async function Home() {
             ⏺️ Free paddle
           </Link>
         </div>
+
+        <InstallNudge />
 
         <section className="flex flex-col gap-3">
           <h2 className="text-river-200 text-xs font-bold uppercase tracking-widest">

@@ -4,6 +4,7 @@ import { type Metadata, type Viewport } from "next";
 import { Geist } from "next/font/google";
 
 import { TRPCReactProvider } from "~/trpc/react";
+import { OfflineLayer } from "~/components/offline/offline-layer";
 
 export const metadata: Metadata = {
   title: "Paddle Prints",
@@ -34,7 +35,9 @@ export default function RootLayout({
   return (
     <html lang="en" className={`${geist.variable}`}>
       <body>
-        <TRPCReactProvider>{children}</TRPCReactProvider>
+        <TRPCReactProvider>
+          <OfflineLayer>{children}</OfflineLayer>
+        </TRPCReactProvider>
       </body>
     </html>
   );

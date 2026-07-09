@@ -1,15 +1,19 @@
 /**
  * Crash-recovery checkpointing. The recorder serialises its full state (plus the route context and
- * progress-match cursor) to localStorage every 15 s and on visibilitychange, so a phone that sleeps,
- * reloads, or gets backgrounded mid-paddle can offer to resume.
+ * progress-match cursor) so a phone that sleeps, reloads, or gets backgrounded mid-paddle can offer
+ * to resume.
  *
- * The store is deliberately behind a narrow interface: Phase 6 swaps localStorage for Dexie/IndexedDB
- * and only `checkpointStore` changes.
+ * Phase 6: the durable store moved from localStorage to the Dexie `activeSession` store (survives the
+ * same reloads, but lives alongside the rest of the offline data and isn't at risk of a 5 MB
+ * localStorage cap). Dexie is async while the recorder writes checkpoints synchronously from a hot
+ * loop, so this keeps a synchronous in-memory shadow: `save`/`clear` update the shadow immediately
+ * and write to IndexedDB fire-and-forget; `load` reads the shadow; and the async `hydrate()` (called
+ * once on mount) pulls the last persisted checkpoint back into the shadow after a reload.
  */
+import { db } from "../offline/db";
 import type { MatchState } from "./progress";
 import type { RecorderState, TripType } from "./types";
 
-const KEY = "paddle-prints:recorder:v1";
 const MAX_AGE_MS = 24 * 60 * 60 * 1000; // a checkpoint older than a day is not a live paddle
 
 export interface Checkpoint {
@@ -25,34 +29,43 @@ export interface CheckpointStore {
   save(cp: Checkpoint): void;
   load(): Checkpoint | null;
   clear(): void;
+  /** Async: reload the persisted checkpoint from IndexedDB into the sync shadow. Call once on mount. */
+  hydrate(): Promise<Checkpoint | null>;
 }
 
-/** localStorage-backed store. No-ops gracefully when localStorage is unavailable (SSR, private mode). */
+/** Synchronous view of the current checkpoint; the durable copy lives in Dexie `activeSession`. */
+let shadow: Checkpoint | null = null;
+
 export const checkpointStore: CheckpointStore = {
   save(cp) {
+    shadow = cp;
     try {
-      globalThis.localStorage?.setItem(KEY, JSON.stringify(cp));
+      void db()
+        .activeSession.put({ key: "current", checkpoint: cp })
+        .catch(() => undefined);
     } catch {
-      /* quota / unavailable -- a lost checkpoint is not fatal */
+      /* IndexedDB unavailable (SSR / tests) -- the shadow still round-trips this session */
     }
   },
   load() {
-    try {
-      const raw = globalThis.localStorage?.getItem(KEY);
-      if (!raw) return null;
-      const cp = JSON.parse(raw) as Checkpoint;
-      if (cp?.version !== 1 || typeof cp.savedAt !== "number") return null;
-      return cp;
-    } catch {
-      return null;
-    }
+    return shadow;
   },
   clear() {
+    shadow = null;
     try {
-      globalThis.localStorage?.removeItem(KEY);
+      void db().activeSession.delete("current").catch(() => undefined);
     } catch {
       /* ignore */
     }
+  },
+  async hydrate() {
+    try {
+      const row = await db().activeSession.get("current");
+      shadow = row?.checkpoint ?? null;
+    } catch {
+      shadow = null;
+    }
+    return shadow;
   },
 };
 

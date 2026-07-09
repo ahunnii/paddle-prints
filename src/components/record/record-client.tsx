@@ -14,7 +14,8 @@ import {
 } from "~/lib/recorder/use-recorder";
 import type { Checkpoint } from "~/lib/recorder/checkpoint";
 import { POI_CATEGORIES, poiMeta, truncateNote } from "~/lib/pois";
-import { api } from "~/trpc/react";
+import { queuePaddle, queuePoi, syncQueue } from "~/lib/offline/sync";
+import type { PoiInput } from "~/lib/offline/db";
 import { NavMap } from "~/components/record/nav-map";
 
 const METERS_PER_MILE = 1609.344;
@@ -100,22 +101,28 @@ export function RecordClient({ route }: { route: RecordRoute | null }) {
   const [showMap, setShowMap] = useState(true);
   const [pending, setPending] = useState<Checkpoint | null>(null);
   const [quickAdd, setQuickAdd] = useState<{ lng: number; lat: number } | null>(null);
+  const [addingPoi, setAddingPoi] = useState(false);
   const paddleId = useRef<string | null>(null);
-
-  const create = api.paddles.create.useMutation({
-    onSuccess: (row) => {
-      clearCheckpoint();
-      router.push(`/paddles/${row.id}`);
-    },
-  });
-
-  const quickAddPoi = api.pois.create.useMutation({
-    onSuccess: () => setQuickAdd(null),
-  });
 
   const handleLongPress = useCallback((point: { lng: number; lat: number }) => {
     setQuickAdd(point);
   }, []);
+
+  // Quick-add POIs are ALWAYS queued to IndexedDB first (uniform online + offline path), then a
+  // background sync ships them. The server dedupes by the client uuid, so this can't duplicate.
+  const addPoi = useCallback(
+    async (category: PoiInput["category"], point: { lng: number; lat: number }) => {
+      setAddingPoi(true);
+      try {
+        await queuePoi({ id: crypto.randomUUID(), category, point });
+        void syncQueue();
+        setQuickAdd(null);
+      } finally {
+        setAddingPoi(false);
+      }
+    },
+    [],
+  );
 
   const nextPoi =
     route && progress && !progress.offRoute && routeModel
@@ -130,22 +137,36 @@ export function RecordClient({ route }: { route: RecordRoute | null }) {
       routeCoords: route?.coords ?? null,
       routeShape: route?.shape ?? "one_way",
     });
-    setPending(readLiveCheckpoint());
-    return () => dispose();
+    // Checkpoint lives in IndexedDB now, so the resume check is async.
+    let cancelled = false;
+    void readLiveCheckpoint().then((cp) => {
+      if (!cancelled) setPending(cp);
+    });
+    return () => {
+      cancelled = true;
+      dispose();
+    };
     // Only re-run if the route identity changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [route?.id]);
 
-  const submit = useCallback(() => {
+  // Finishing ALWAYS writes the paddle to the offline queue first, then fires a background sync and
+  // navigates to the summary immediately. The summary renders from IndexedDB until the sync lands, so
+  // this path is identical online and offline -- no "save failed, retry" dead-ends on the river.
+  const submit = useCallback(async () => {
     const m = useRecorder.getState().machine;
     paddleId.current ??= crypto.randomUUID();
-    create.mutate(buildInput(m, route?.id ?? null, tripType, paddleId.current));
-  }, [create, route?.id, tripType]);
+    const input = buildInput(m, route?.id ?? null, tripType, paddleId.current);
+    await queuePaddle(input);
+    clearCheckpoint();
+    void syncQueue();
+    router.push(`/paddles/${input.id}`);
+  }, [route?.id, tripType, router]);
 
   const handleFinish = useCallback(() => {
     if (!window.confirm("Finish and save this paddle?")) return;
     finish();
-    submit();
+    void submit();
   }, [finish, submit]);
 
   const status = machine.status;
@@ -366,14 +387,8 @@ export function RecordClient({ route }: { route: RecordRoute | null }) {
                   <button
                     key={c.category}
                     type="button"
-                    onClick={() =>
-                      quickAddPoi.mutate({
-                        id: crypto.randomUUID(),
-                        category: c.category,
-                        point: quickAdd,
-                      })
-                    }
-                    disabled={quickAddPoi.isPending}
+                    onClick={() => void addPoi(c.category, quickAdd)}
+                    disabled={addingPoi}
                     className="flex min-h-11 shrink-0 items-center gap-1.5 rounded-full bg-white/10 px-3 text-sm font-semibold text-white active:bg-white/20 disabled:opacity-50"
                   >
                     <span>{c.emoji}</span>
@@ -399,20 +414,6 @@ export function RecordClient({ route }: { route: RecordRoute | null }) {
         </p>
       ) : null}
 
-      {create.isError && isFinished ? (
-        <div className="flex items-center justify-between gap-3 bg-red-900/70 px-4 py-3 text-sm">
-          <span>Couldn&apos;t save. Your paddle is safe on this device.</span>
-          <button
-            type="button"
-            onClick={submit}
-            disabled={create.isPending}
-            className="rounded-lg bg-white px-3 py-1.5 font-bold text-red-900 disabled:opacity-50"
-          >
-            {create.isPending ? "Saving…" : "Retry"}
-          </button>
-        </div>
-      ) : null}
-
       {/* controls */}
       <div className="flex items-center gap-3 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-2">
         {isPaused ? (
@@ -436,10 +437,10 @@ export function RecordClient({ route }: { route: RecordRoute | null }) {
         <button
           type="button"
           onClick={handleFinish}
-          disabled={isFinished && create.isPending}
+          disabled={isFinished}
           className="min-h-14 flex-1 rounded-2xl bg-sunset-500 text-lg font-extrabold text-white active:bg-sunset-600 disabled:opacity-60"
         >
-          {isFinished ? (create.isPending ? "Saving…" : "Finish") : "Finish"}
+          {isFinished ? "Saving…" : "Finish"}
         </button>
       </div>
     </main>
