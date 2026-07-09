@@ -14,6 +14,9 @@ pnpm install
 # Run migrations
 pnpm db:migrate
 
+# Serve local map tiles (requires Docker; run in a separate terminal)
+pnpm tiles:serve
+
 # Start development server
 pnpm dev
 ```

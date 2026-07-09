@@ -1,4 +1,5 @@
 import { headers } from "next/headers";
+import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { SignOutButton } from "~/app/_components/sign-out-button";
@@ -22,6 +23,12 @@ export default async function Home() {
           Your crew&apos;s route feed is paddling this way soon &mdash; check
           back after Phase 2.
         </p>
+        <Link
+          href="/map"
+          className="bg-sunset-500 hover:bg-sunset-600 flex items-center gap-2 rounded-full px-6 py-3 font-semibold text-white shadow-lg transition-colors"
+        >
+          🗺️ Explore the map
+        </Link>
         <SignOutButton />
       </div>
     </main>

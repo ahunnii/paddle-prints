@@ -44,3 +44,7 @@ yarn-error.log*
 
 # idea files
 .idea
+
+
+# local tile builds (michigan.pmtiles is deployed by scp, not git)
+/tiles
