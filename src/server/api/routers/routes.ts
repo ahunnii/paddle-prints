@@ -1,10 +1,14 @@
 import { TRPCError } from "@trpc/server";
 import { desc, eq, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import { z } from "zod";
 
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { user } from "~/server/db/auth-schema";
 import { paddles, pois, routeShape, routeType, routes } from "~/server/db/schema";
+
+/** Second join alias for `user` -- corridor POIs need their own creator, distinct from the route's. */
+const poiCreator = alias(user, "poi_creator");
 
 /**
  * Zod schema for a GeoJSON `LineString` geometry: at least two `[lng, lat]` coordinate pairs,
@@ -75,6 +79,13 @@ export const routesRouter = createTRPCRouter({
       .orderBy(desc(routes.createdAt));
   }),
 
+  /** Lightweight id/name/geom for every route, for drawing all saved lines on the community map. */
+  listGeoms: protectedProcedure.query(async ({ ctx }) => {
+    return ctx.db
+      .select({ id: routes.id, name: routes.name, geom: routes.geom })
+      .from(routes);
+  }),
+
   byId: protectedProcedure
     .input(z.object({ id: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
@@ -107,11 +118,13 @@ export const routesRouter = createTRPCRouter({
           note: pois.note,
           geom: pois.geom,
           createdAt: pois.createdAt,
+          creatorName: poiCreator.name,
           // Distance along the route line (in meters from the start) so the UI can order/place
           // POIs along the corridor.
           routeDistM: sql<number>`ST_LineLocatePoint(ST_GeomFromGeoJSON(${routeGeomJson}), ${pois.geom}) * ${route.distanceM}`,
         })
         .from(pois)
+        .innerJoin(poiCreator, eq(pois.createdBy, poiCreator.id))
         .where(
           sql`ST_DWithin(${pois.geom}::geography, ST_GeomFromGeoJSON(${routeGeomJson})::geography, 150)`,
         );

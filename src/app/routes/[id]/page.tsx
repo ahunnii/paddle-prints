@@ -5,6 +5,7 @@ import { notFound, redirect } from "next/navigation";
 
 import { DeleteRouteButton } from "~/components/routes/delete-route-button";
 import { RouteMap } from "~/components/routes/route-map";
+import { poiHeadline, poiMeta } from "~/lib/pois";
 import { auth } from "~/server/auth";
 import { api } from "~/trpc/server";
 
@@ -42,11 +43,22 @@ export default async function RouteDetailPage({
     throw err;
   }
 
+  const sortedPois = [...route.pois].sort((a, b) => a.routeDistM - b.routeDistM);
+
   return (
     <main className="relative h-dvh w-dvw">
       <RouteMap
         geometry={route.geom}
         shape={route.shape}
+        pois={sortedPois.map((poi) => ({
+          id: poi.id,
+          category: poi.category,
+          note: poi.note,
+          lng: poi.geom.coordinates[0]!,
+          lat: poi.geom.coordinates[1]!,
+          creatorName: poi.creatorName,
+          createdAt: poi.createdAt,
+        }))}
         className="h-full w-full"
       />
 
@@ -110,16 +122,21 @@ export default async function RouteDetailPage({
             <p className="text-river-500 mb-1 text-xs uppercase tracking-wide">
               Spots along the way
             </p>
-            {route.pois.length === 0 ? (
+            {sortedPois.length === 0 ? (
               <p className="text-river-400 text-sm italic">
                 No spots marked yet
               </p>
             ) : (
-              <ul className="flex flex-col gap-1">
-                {route.pois.map((poi) => (
+              <ul className="flex max-h-40 flex-col gap-1.5 overflow-y-auto">
+                {sortedPois.map((poi) => (
                   <li key={poi.id} className="text-river-700 text-sm">
-                    {poi.category}
-                    {poi.note ? ` — ${poi.note}` : ""}
+                    <span className="font-semibold">
+                      {poiMeta(poi.category).emoji} {poiHeadline(poi)}
+                    </span>
+                    <span className="text-river-400">
+                      {" "}
+                      — {(poi.routeDistM / METERS_PER_MILE).toFixed(1)} mi in
+                    </span>
                   </li>
                 ))}
               </ul>

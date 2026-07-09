@@ -5,17 +5,19 @@ import maplibregl, { type Map as MapLibreMap } from "maplibre-gl";
 import type { LineString } from "geojson";
 
 import { BaseMap } from "~/components/map/base-map";
+import { PoiLayer, type PoiMapItem } from "~/components/map/poi-layer";
 
 interface RouteMapProps {
   geometry: LineString;
   shape: "one_way" | "out_and_back";
+  pois?: PoiMapItem[];
   className?: string;
 }
 
 const ROUTE_LINE_SOURCE = "route-detail-line";
 const ROUTE_LINE_COLOR = "#1f7796"; // river-600
 
-export function RouteMap({ geometry, shape, className }: RouteMapProps) {
+export function RouteMap({ geometry, shape, pois, className }: RouteMapProps) {
   const [map, setMap] = useState<MapLibreMap | null>(null);
 
   useEffect(() => {
@@ -62,5 +64,10 @@ export function RouteMap({ geometry, shape, className }: RouteMapProps) {
     else map.once("load", setup);
   }, [map, geometry, shape]);
 
-  return <BaseMap onMap={setMap} className={className ?? "h-full w-full"} />;
+  return (
+    <>
+      <BaseMap onMap={setMap} className={className ?? "h-full w-full"} />
+      <PoiLayer map={map} pois={pois ?? []} />
+    </>
+  );
 }

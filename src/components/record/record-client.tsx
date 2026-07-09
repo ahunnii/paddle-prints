@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 
+import { nextPoiAhead, type CorridorPoi } from "~/lib/recorder/next-poi";
 import { simplifyTrack } from "~/lib/recorder/simplify";
 import type { RecorderState, TripType } from "~/lib/recorder/types";
 import {
@@ -12,6 +13,7 @@ import {
   useRecorder,
 } from "~/lib/recorder/use-recorder";
 import type { Checkpoint } from "~/lib/recorder/checkpoint";
+import { POI_CATEGORIES, poiMeta, truncateNote } from "~/lib/pois";
 import { api } from "~/trpc/react";
 import { NavMap } from "~/components/record/nav-map";
 
@@ -24,6 +26,7 @@ export interface RecordRoute {
   shape: "one_way" | "out_and_back";
   type: "river" | "waypoint";
   coords: Array<[number, number]>;
+  pois: CorridorPoi[];
 }
 
 function miles(m: number, dp = 2) {
@@ -88,6 +91,7 @@ export function RecordClient({ route }: { route: RecordRoute | null }) {
   const machine = useRecorder((s) => s.machine);
   const progress = useRecorder((s) => s.progress);
   const eta = useRecorder((s) => s.eta);
+  const routeModel = useRecorder((s) => s.routeModel);
   const wakeLockOk = useRecorder((s) => s.wakeLockOk);
   const gpsAcc = useRecorder((s) => s.gpsAccuracyM);
   const geoError = useRecorder((s) => s.geoError);
@@ -95,6 +99,7 @@ export function RecordClient({ route }: { route: RecordRoute | null }) {
   const [tripType, setTripType] = useState<TripType>(route?.type ?? "river");
   const [showMap, setShowMap] = useState(true);
   const [pending, setPending] = useState<Checkpoint | null>(null);
+  const [quickAdd, setQuickAdd] = useState<{ lng: number; lat: number } | null>(null);
   const paddleId = useRef<string | null>(null);
 
   const create = api.paddles.create.useMutation({
@@ -103,6 +108,19 @@ export function RecordClient({ route }: { route: RecordRoute | null }) {
       router.push(`/paddles/${row.id}`);
     },
   });
+
+  const quickAddPoi = api.pois.create.useMutation({
+    onSuccess: () => setQuickAdd(null),
+  });
+
+  const handleLongPress = useCallback((point: { lng: number; lat: number }) => {
+    setQuickAdd(point);
+  }, []);
+
+  const nextPoi =
+    route && progress && !progress.offRoute && routeModel
+      ? nextPoiAhead(route.pois, route.shape, routeModel.totalM, progress.progressM)
+      : null;
 
   // Configure the recorder for this page, and surface any live checkpoint as a resume offer.
   useEffect(() => {
@@ -256,6 +274,17 @@ export function RecordClient({ route }: { route: RecordRoute | null }) {
       className="relative flex h-dvh w-dvw flex-col bg-black text-white"
       style={{ touchAction: "manipulation" }}
     >
+      {/* next-poi-ahead banner */}
+      {nextPoi ? (
+        <div className="flex items-center gap-2 border-b border-amber-400/30 bg-black px-4 py-2 text-sm font-bold text-amber-400">
+          <span className="text-lg">{poiMeta(nextPoi.poi.category).emoji}</span>
+          <span className="truncate">
+            {nextPoi.poi.note ? truncateNote(nextPoi.poi.note) : poiMeta(nextPoi.poi.category).label} in{" "}
+            {miles(nextPoi.distanceAheadM, 1)} mi
+          </span>
+        </div>
+      ) : null}
+
       {/* status chips */}
       <div className="flex flex-wrap items-center gap-2 px-4 pt-[max(0.75rem,env(safe-area-inset-top))] pb-2 text-xs font-semibold">
         <span className="rounded-full bg-white/10 px-2.5 py-1">
@@ -325,8 +354,42 @@ export function RecordClient({ route }: { route: RecordRoute | null }) {
             routeCoords={route?.coords ?? null}
             livePos={livePos}
             snapped={progress?.snapped ?? null}
+            onLongPress={isFinished ? undefined : handleLongPress}
             className="h-full w-full"
           />
+
+          {quickAdd ? (
+            <div className="absolute inset-x-0 bottom-0 z-20 flex flex-col gap-2 bg-black/90 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+              <p className="text-xs font-semibold text-white/70">Add a spot here</p>
+              <div className="flex gap-2 overflow-x-auto pb-1">
+                {POI_CATEGORIES.map((c) => (
+                  <button
+                    key={c.category}
+                    type="button"
+                    onClick={() =>
+                      quickAddPoi.mutate({
+                        id: crypto.randomUUID(),
+                        category: c.category,
+                        point: quickAdd,
+                      })
+                    }
+                    disabled={quickAddPoi.isPending}
+                    className="flex min-h-11 shrink-0 items-center gap-1.5 rounded-full bg-white/10 px-3 text-sm font-semibold text-white active:bg-white/20 disabled:opacity-50"
+                  >
+                    <span>{c.emoji}</span>
+                    <span>{c.label}</span>
+                  </button>
+                ))}
+              </div>
+              <button
+                type="button"
+                onClick={() => setQuickAdd(null)}
+                className="min-h-9 self-start rounded-lg text-xs font-semibold text-white/60"
+              >
+                Cancel
+              </button>
+            </div>
+          ) : null}
         </div>
       ) : null}
 

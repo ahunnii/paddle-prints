@@ -102,6 +102,13 @@ export function BaseMap({
         return;
       }
 
+      // Dev-only e2e hook: expose the live map instance on window so browser automation can drive
+      // it directly (pan to exact coordinates, read state) without simulating pixel-perfect drags.
+      // Never ships to production.
+      if (process.env.NODE_ENV !== "production") {
+        (window as unknown as { __paddleMap?: MapLibreMap }).__paddleMap = map;
+      }
+
       onMapRef.current?.(map);
     })();
 

@@ -18,6 +18,7 @@ import { haversineM } from "../src/lib/recorder/geo.ts";
 import { simplifyTrack } from "../src/lib/recorder/simplify.ts";
 import { computeEta } from "../src/lib/recorder/eta.ts";
 import { checkpointStore } from "../src/lib/recorder/checkpoint.ts";
+import { nextPoiAhead } from "../src/lib/recorder/next-poi.ts";
 
 // ---------------------------------------------------------------------------
 // tiny test harness
@@ -518,6 +519,71 @@ section("bonus. simplify keeps endpoints + reduces; eta blends toward session");
   const late = computeEta({ remainingM: 1000, movingS: 600, sessionDistanceM: 1800, historicalSpeedMps: 1.34 });
   check("early ETA leans on historical speed", Math.abs(early.speedMps - 1.34) < 0.3, `speed=${early.speedMps.toFixed(2)}`);
   check("late ETA leans on session speed (3.0 m/s)", Math.abs(late.speedMps - 3.0) < 0.2, `speed=${late.speedMps.toFixed(2)}`);
+}
+
+// ---------------------------------------------------------------------------
+// 8. next-poi-ahead -- one-way ahead/passed/none-ahead + out-and-back reappear
+// ---------------------------------------------------------------------------
+section("8. next-poi-ahead -- direction-aware nearest-ahead POI");
+{
+  // --- one-way ---------------------------------------------------------------
+  const poiA = { id: "a", category: "hazard", note: "Rapids", routeDistM: 300 };
+  const totalOneWay = 1000;
+
+  const ahead = nextPoiAhead([poiA], "one_way", totalOneWay, 100);
+  check(
+    "one-way: ahead of progress -> flagged, correct distance",
+    ahead != null && ahead.poi.id === "a" && Math.abs(ahead.distanceAheadM - 200) < 1e-6,
+    `got=${JSON.stringify(ahead)}`,
+  );
+
+  const withinGrace = nextPoiAhead([poiA], "one_way", totalOneWay, 310);
+  check(
+    "one-way: just passed but within 30m grace -> still flagged, distance clamped to 0",
+    withinGrace != null && withinGrace.poi.id === "a" && withinGrace.distanceAheadM === 0,
+    `got=${JSON.stringify(withinGrace)}`,
+  );
+
+  const passed = nextPoiAhead([poiA], "one_way", totalOneWay, 400);
+  check(
+    "one-way: passed beyond grace -> not flagged (none ahead)",
+    passed === null,
+    `got=${JSON.stringify(passed)}`,
+  );
+
+  const none = nextPoiAhead([], "one_way", totalOneWay, 100);
+  check("one-way: no corridor POIs -> null", none === null);
+
+  // --- out-and-back ------------------------------------------------------------
+  // L=500, totalM=2L=1000. POI at d=200: outbound position 200, return position 2L-200=800.
+  const poiB = { id: "b", category: "wildlife", note: null, routeDistM: 200 };
+  const totalOutBack = 1000;
+
+  const outboundAhead = nextPoiAhead([poiB], "out_and_back", totalOutBack, 100);
+  check(
+    "out-and-back: ahead on the outbound leg -> matches outbound position",
+    outboundAhead != null &&
+      outboundAhead.positionM === 200 &&
+      Math.abs(outboundAhead.distanceAheadM - 100) < 1e-6,
+    `got=${JSON.stringify(outboundAhead)}`,
+  );
+
+  const reappeared = nextPoiAhead([poiB], "out_and_back", totalOutBack, 650);
+  check(
+    "out-and-back: passed outbound, reappears ahead on the return leg at 2L-d",
+    reappeared != null &&
+      reappeared.poi.id === "b" &&
+      reappeared.positionM === 800 &&
+      Math.abs(reappeared.distanceAheadM - 150) < 1e-6,
+    `got=${JSON.stringify(reappeared)}`,
+  );
+
+  const trulyDone = nextPoiAhead([poiB], "out_and_back", totalOutBack, 850);
+  check(
+    "out-and-back: passed on the return leg too (beyond grace) -> null",
+    trulyDone === null,
+    `got=${JSON.stringify(trulyDone)}`,
+  );
 }
 
 // ---------------------------------------------------------------------------

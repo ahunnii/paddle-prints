@@ -36,6 +36,12 @@ export default async function RecordPage({
         coords: r.geom.coordinates.map(
           (c) => [c[0], c[1]] as [number, number],
         ),
+        pois: r.pois.map((p) => ({
+          id: p.id,
+          category: p.category,
+          note: p.note,
+          routeDistM: p.routeDistM,
+        })),
       };
     } catch (err) {
       // A bad/removed route id just falls back to a free paddle rather than erroring the page.
