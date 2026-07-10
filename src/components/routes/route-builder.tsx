@@ -12,6 +12,7 @@ import { lineString as turfLineString } from "@turf/helpers";
 
 import { BaseMap } from "~/components/map/base-map";
 import { FloatingHeader } from "~/components/layout/floating-header";
+import { toast } from "~/components/ui/toaster";
 import { api } from "~/trpc/react";
 
 type RouteShape = "one_way" | "out_and_back";
@@ -81,6 +82,9 @@ export function RouteBuilder() {
   const putInRef = useRef(putIn);
   putInRef.current = putIn;
 
+  // Calculate dirty state for navigation guards.
+  const dirty = putIn !== null || takeOut !== null || waypoints.length > 0 || name.trim().length > 0 || description.trim().length > 0;
+
   // --- river routing query -------------------------------------------------
   const riverQuery = api.rivers.route.useQuery(
     mode === "river" && putIn && takeOut ? { a: putIn, b: takeOut } : skipToken,
@@ -91,6 +95,7 @@ export function RouteBuilder() {
 
   const createRoute = api.routes.create.useMutation({
     onSuccess: (route) => {
+      toast("Route saved");
       router.push(`/routes/${route.id}`);
     },
   });
@@ -150,6 +155,19 @@ export function RouteBuilder() {
     }
     map.once("load", () => setMapReady(true));
   }, [map]);
+
+  // Prevent navigation away from unsaved changes via browser back/refresh/close.
+  useEffect(() => {
+    if (!dirty && !createRoute.isPending) return;
+
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [dirty, createRoute.isPending]);
 
   // Tap the map. River mode: first tap = put-in, any later tap sets/replaces the
   // take-out (keeping the put-in). Waypoint mode: append a waypoint.
@@ -382,7 +400,11 @@ export function RouteBuilder() {
         </div>
       ) : null}
 
-      <FloatingHeader backHref="/routes" title="New route" />
+      <FloatingHeader
+        backHref="/routes"
+        title="New route"
+        backConfirm={dirty || createRoute.isPending ? "Leave without saving this route?" : undefined}
+      />
 
       <div className="pointer-events-none absolute inset-x-0 top-[calc(4rem+env(safe-area-inset-top))] flex justify-center p-2">
         <div className="pointer-events-auto flex items-center gap-1 rounded-full bg-white/90 p-1 shadow-lg backdrop-blur">

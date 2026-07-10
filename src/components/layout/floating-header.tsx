@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
+import { ConfirmLink } from "./confirm-link";
 
 /**
  * The floating "pill" header used on every full-bleed map screen (map, route detail, route builder,
@@ -12,21 +13,25 @@ export function FloatingHeader({
   backLabel = "Back",
   title,
   right,
+  backConfirm,
 }: {
   backHref: string;
   backLabel?: string;
   title?: string;
   right?: ReactNode;
+  backConfirm?: string;
 }) {
+  const BackComponent = backConfirm ? ConfirmLink : Link;
   return (
     <div className="pointer-events-none absolute inset-x-0 top-0 flex justify-center p-[max(1rem,env(safe-area-inset-top))]">
       <div className="pointer-events-auto flex items-center gap-3 rounded-full bg-white/90 px-4 py-2 shadow-lg backdrop-blur">
-        <Link
+        <BackComponent
           href={backHref}
           className="text-river-700 hover:text-river-900 active:text-river-950 text-sm font-semibold"
+          confirmMessage={backConfirm}
         >
           ← {backLabel}
-        </Link>
+        </BackComponent>
         {title ? (
           <>
             <span className="text-river-200">|</span>
