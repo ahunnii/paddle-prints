@@ -8,6 +8,7 @@ import { useLiveQuery } from "dexie-react-hooks";
 import { BaseMap } from "~/components/map/base-map";
 import { PoiLayer, type PoiMapItem } from "~/components/map/poi-layer";
 import { PoiPlacement } from "~/components/map/poi-placement";
+import { PresenceLayer } from "~/components/map/presence-layer";
 import { toast } from "~/components/ui/toaster";
 import { db } from "~/lib/offline/db";
 import { savePoiQueued } from "~/lib/offline/sync";
@@ -33,7 +34,11 @@ function getBbox(map: MapLibreMap): Bbox {
  * The interactive community map: saved route lines + POI markers loaded for the current viewport,
  * and a "+ Add spot" flow (crosshair-centered placement -> category chip row -> optional note).
  */
-export function CommunityMapClient() {
+interface CommunityMapClientProps {
+  selfId: string;
+}
+
+export function CommunityMapClient({ selfId }: CommunityMapClientProps) {
   const [map, setMap] = useState<MapLibreMap | null>(null);
   const [bbox, setBbox] = useState<Bbox | null>(null);
   const [placing, setPlacing] = useState(false);
@@ -199,6 +204,7 @@ export function CommunityMapClient() {
         pois={[...poiItems, ...pendingItems]}
         onDeleted={() => void utils.pois.inBbox.invalidate()}
       />
+      <PresenceLayer map={map} selfId={selfId} />
 
       <PoiPlacement
         open={placing}

@@ -8,6 +8,9 @@
  */
 import { create } from "zustand";
 
+import { trpcVanilla } from "~/lib/offline/trpc-vanilla";
+import { useSettings } from "~/lib/settings/use-settings";
+
 import {
   checkpointStore,
   isLiveCheckpoint,
@@ -32,6 +35,10 @@ interface Runtime {
   watchId: number | null;
   tick: ReturnType<typeof setInterval> | null;
   ckpt: ReturnType<typeof setInterval> | null;
+  /** Recurring presence heartbeat, started in `arm()`. */
+  presence: ReturnType<typeof setInterval> | null;
+  /** One-shot early heartbeat kick so friends see you shortly after start. */
+  presenceKick: ReturnType<typeof setTimeout> | null;
   wakeLock: WakeLockSentinel | null;
   visibilityBound: boolean;
   /** Timestamp of the start of the current unbroken streak of coarse (>100m) fixes, or null if the
@@ -44,10 +51,17 @@ const runtime: Runtime = {
   watchId: null,
   tick: null,
   ckpt: null,
+  presence: null,
+  presenceKick: null,
   wakeLock: null,
   visibilityBound: false,
   coarseStreakStartedAt: null,
 };
+
+/** How often to heartbeat the current position to the presence table while recording. */
+const PRESENCE_INTERVAL_MS = 75_000;
+/** One-shot delay before the first heartbeat, so friends see you shortly after start. */
+const PRESENCE_KICK_MS = 5_000;
 
 /** Window over which we judge "persistently coarse" accuracy. */
 const ACCURACY_HINT_WINDOW_MS = 30_000;
@@ -153,6 +167,29 @@ export const useRecorder = create<RecorderStore>((set, get) => {
     });
   }
 
+  /** Best-effort heartbeat of the current position, gated so it never disturbs a recording. */
+  async function sendPresence() {
+    if (!useSettings.getState().sharePresence) return;
+    if (typeof navigator !== "undefined" && !navigator.onLine) return;
+
+    const s = get();
+    const last = s.machine.track[s.machine.track.length - 1];
+    const live =
+      s.machine.status === "recording" ||
+      s.machine.status === "autoPaused" ||
+      s.machine.status === "manualPaused";
+    if (!last || !live) return;
+
+    try {
+      await trpcVanilla.presence.heartbeat.mutate({
+        point: { lng: last.lng, lat: last.lat },
+        tripType: s.tripType,
+      });
+    } catch {
+      // Never disturb the recording over a presence hiccup.
+    }
+  }
+
   async function requestWakeLock() {
     try {
       if ("wakeLock" in navigator) {
@@ -233,6 +270,8 @@ export const useRecorder = create<RecorderStore>((set, get) => {
       1000,
     );
     runtime.ckpt = setInterval(saveCheckpoint, 15_000);
+    runtime.presence = setInterval(() => void sendPresence(), PRESENCE_INTERVAL_MS);
+    runtime.presenceKick = setTimeout(() => void sendPresence(), PRESENCE_KICK_MS);
     if (!runtime.visibilityBound) {
       document.addEventListener("visibilitychange", onVisibility);
       runtime.visibilityBound = true;
@@ -249,6 +288,10 @@ export const useRecorder = create<RecorderStore>((set, get) => {
     runtime.tick = null;
     if (runtime.ckpt) clearInterval(runtime.ckpt);
     runtime.ckpt = null;
+    if (runtime.presence) clearInterval(runtime.presence);
+    runtime.presence = null;
+    if (runtime.presenceKick) clearTimeout(runtime.presenceKick);
+    runtime.presenceKick = null;
     if (runtime.visibilityBound) {
       document.removeEventListener("visibilitychange", onVisibility);
       runtime.visibilityBound = false;
@@ -329,6 +372,8 @@ export const useRecorder = create<RecorderStore>((set, get) => {
       // hardware. The client clears the checkpoint only once the paddle is saved.
       saveCheckpoint();
       teardown();
+      // Best-effort: the 5-minute staleness filter is the real cleanup.
+      void trpcVanilla.presence.clear.mutate().catch(() => undefined);
     },
 
     async restoreFrom(cp) {
@@ -373,6 +418,8 @@ export const useRecorder = create<RecorderStore>((set, get) => {
         eta: null,
         gpsAccuracyM: null,
       });
+      // Best-effort: the 5-minute staleness filter is the real cleanup.
+      void trpcVanilla.presence.clear.mutate().catch(() => undefined);
     },
 
     dispose() {

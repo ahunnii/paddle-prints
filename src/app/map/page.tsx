@@ -14,7 +14,7 @@ export default async function MapPage() {
 
   return (
     <main className="relative h-dvh w-dvw overscroll-none">
-      <CommunityMapClient />
+      <CommunityMapClient selfId={session.user.id} />
       <FloatingHeader backHref="/" title="Community map" />
     </main>
   );
