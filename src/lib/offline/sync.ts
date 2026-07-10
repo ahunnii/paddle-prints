@@ -39,6 +39,19 @@ export async function queuePoi(input: PoiInput): Promise<void> {
   await db().pendingPois.put({ id: input.id, input, createdAt: Date.now() });
 }
 
+/**
+ * Queue a new POI and immediately try to drain it, so the "Add spot" flow can pick the right toast
+ * copy ("Spot saved" vs "Saved offline"). Shared by the community map and the nav map -- one queue
+ * path, offline-capable everywhere; the server already dedupes by client uuid so a retried send
+ * after a dropped success response can never duplicate.
+ */
+export async function savePoiQueued(input: Omit<PoiInput, "id">): Promise<"synced" | "queued"> {
+  const id = crypto.randomUUID();
+  await queuePoi({ id, ...input });
+  await syncQueue();
+  return (await db().pendingPois.get(id)) ? "queued" : "synced";
+}
+
 /** Extract an HTTP status from a tRPC client error, if it carried one. */
 function httpStatus(err: unknown): number | undefined {
   const data = (err as { data?: { httpStatus?: number } })?.data;

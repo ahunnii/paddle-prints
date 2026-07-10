@@ -3,10 +3,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import maplibregl, { type Map as MapLibreMap } from "maplibre-gl";
 import type { FeatureCollection, LineString } from "geojson";
+import { useLiveQuery } from "dexie-react-hooks";
 
 import { BaseMap } from "~/components/map/base-map";
 import { PoiLayer, type PoiMapItem } from "~/components/map/poi-layer";
-import { POI_CATEGORIES, type PoiCategory } from "~/lib/pois";
+import { PoiPlacement } from "~/components/map/poi-placement";
+import { toast } from "~/components/ui/toaster";
+import { db } from "~/lib/offline/db";
+import { savePoiQueued } from "~/lib/offline/sync";
+import type { PoiCategory } from "~/lib/pois";
 import { api } from "~/trpc/react";
 
 const ROUTES_SOURCE = "community-route-lines";
@@ -32,8 +37,8 @@ export function CommunityMapClient() {
   const [map, setMap] = useState<MapLibreMap | null>(null);
   const [bbox, setBbox] = useState<Bbox | null>(null);
   const [placing, setPlacing] = useState(false);
-  const [category, setCategory] = useState<PoiCategory>("hazard");
-  const [note, setNote] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const poisQuery = api.pois.inBbox.useQuery(bbox ?? { west: 0, south: 0, east: 0, north: 0 }, {
@@ -41,13 +46,11 @@ export function CommunityMapClient() {
   });
   const routesQuery = api.routes.listGeoms.useQuery();
   const utils = api.useUtils();
-  const create = api.pois.create.useMutation({
-    onSuccess: () => {
-      setPlacing(false);
-      setNote("");
-      void utils.pois.inBbox.invalidate();
-    },
-  });
+
+  // Queued-but-not-yet-synced spots, so an offline (or just-fired) add shows up on the map
+  // immediately instead of waiting for the next `pois.inBbox` fetch. Popup Delete on one of these
+  // still-pending ids will NOT_FOUND on the server (it isn't there yet) -- acceptable for now.
+  const pendingPois = useLiveQuery(() => db().pendingPois.toArray(), []) ?? [];
 
   const updateBbox = useCallback((m: MapLibreMap) => {
     setBbox(getBbox(m));
@@ -121,6 +124,20 @@ export function CommunityMapClient() {
     else map.once("load", setup);
   }, [map, routesQuery.data]);
 
+  // Built-in "locate me" button (button -> geolocate -> marker -> ease), free from MapLibre.
+  useEffect(() => {
+    if (!map) return;
+    const ctl = new maplibregl.GeolocateControl({
+      positionOptions: { enableHighAccuracy: true },
+      trackUserLocation: false,
+      showAccuracyCircle: true,
+    });
+    map.addControl(ctl, "top-right");
+    return () => {
+      map.removeControl(ctl);
+    };
+  }, [map]);
+
   const poiItems: PoiMapItem[] = (poisQuery.data ?? []).map((p) => ({
     id: p.id,
     category: p.category,
@@ -130,16 +147,48 @@ export function CommunityMapClient() {
     creatorName: p.creatorName,
     createdAt: p.createdAt,
   }));
+  const serverIds = new Set(poiItems.map((p) => p.id));
+  const pendingItems: PoiMapItem[] = pendingPois
+    .filter((p) => !serverIds.has(p.id))
+    .map((p) => ({
+      id: p.id,
+      category: p.input.category,
+      note: p.input.note ?? null,
+      lng: p.input.point.lng,
+      lat: p.input.point.lat,
+      creatorName: "You",
+      createdAt: new Date(p.createdAt),
+    }));
 
-  const handleSave = () => {
+  const openPlacement = () => {
+    setSaveError(null);
+    setPlacing(true);
+  };
+
+  const handleCancel = () => {
+    setPlacing(false);
+    setSaveError(null);
+  };
+
+  const handleSave = async (category: PoiCategory, note: string) => {
     if (!map) return;
-    const center = map.getCenter();
-    create.mutate({
-      id: crypto.randomUUID(),
-      category,
-      note: note.trim().length > 0 ? note.trim() : undefined,
-      point: { lng: center.lng, lat: center.lat },
-    });
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const center = map.getCenter();
+      const status = await savePoiQueued({
+        category,
+        note: note.trim().length > 0 ? note.trim() : undefined,
+        point: { lng: center.lng, lat: center.lat },
+      });
+      toast(status === "synced" ? "Spot saved" : "Saved offline — will sync when online");
+      void utils.pois.inBbox.invalidate();
+      setPlacing(false);
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : "Couldn't save. Try again.");
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -147,81 +196,28 @@ export function CommunityMapClient() {
       <BaseMap onMap={setMap} className="h-full w-full" />
       <PoiLayer
         map={map}
-        pois={poiItems}
+        pois={[...poiItems, ...pendingItems]}
         onDeleted={() => void utils.pois.inBbox.invalidate()}
       />
 
-      {placing ? (
-        <>
-          {/* fixed center crosshair -- the map pans underneath it */}
-          <div className="pointer-events-none absolute left-1/2 top-1/2 z-10 -translate-x-1/2 -translate-y-1/2">
-            <div className="h-8 w-8 rounded-full border-2 border-sunset-500 bg-sunset-500/20" />
-            <div className="absolute left-1/2 top-1/2 h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-sunset-500" />
-          </div>
+      <PoiPlacement
+        open={placing}
+        saving={saving}
+        error={saveError}
+        onCancel={handleCancel}
+        onSave={(category, note) => void handleSave(category, note)}
+      />
 
-          <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 flex justify-center p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
-            <div className="pointer-events-auto flex w-full max-w-md flex-col gap-3 rounded-3xl bg-white/95 p-4 shadow-2xl backdrop-blur">
-              <p className="text-river-950 text-sm font-bold">Add a spot</p>
-              <div className="flex gap-2 overflow-x-auto pb-1">
-                {POI_CATEGORIES.map((c) => (
-                  <button
-                    key={c.category}
-                    type="button"
-                    onClick={() => setCategory(c.category)}
-                    className={`flex min-h-11 shrink-0 items-center gap-1.5 rounded-full px-3 text-sm font-semibold ${
-                      category === c.category
-                        ? "bg-river-600 text-white"
-                        : "bg-river-50 text-river-700"
-                    }`}
-                  >
-                    <span>{c.emoji}</span>
-                    <span>{c.label}</span>
-                  </button>
-                ))}
-              </div>
-              <input
-                type="text"
-                value={note}
-                onChange={(e) => setNote(e.target.value.slice(0, 280))}
-                placeholder="Optional note"
-                className="min-h-11 rounded-xl border border-river-200 px-3 text-sm"
-              />
-              {create.isError ? (
-                <p className="text-xs text-red-600">Couldn&apos;t save. Try again.</p>
-              ) : null}
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setPlacing(false);
-                    setNote("");
-                  }}
-                  className="min-h-11 flex-1 rounded-xl border border-river-200 text-sm font-semibold text-river-700"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={handleSave}
-                  disabled={create.isPending}
-                  className="min-h-11 flex-1 rounded-xl bg-sunset-500 text-sm font-bold text-white disabled:opacity-60"
-                >
-                  {create.isPending ? "Saving…" : "Save"}
-                </button>
-              </div>
-            </div>
-          </div>
-        </>
-      ) : (
+      {!placing ? (
         <button
           type="button"
-          onClick={() => setPlacing(true)}
+          onClick={openPlacement}
           className="absolute right-4 z-10 flex min-h-14 items-center gap-2 rounded-full bg-sunset-500 px-5 text-sm font-extrabold text-white shadow-2xl"
           style={{ bottom: "max(1.5rem, env(safe-area-inset-bottom))" }}
         >
           + Add spot
         </button>
-      )}
+      ) : null}
     </>
   );
 }
