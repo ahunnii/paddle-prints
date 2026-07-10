@@ -5,6 +5,7 @@ import { Geist, Nunito } from "next/font/google";
 
 import { TRPCReactProvider } from "~/trpc/react";
 import { OfflineLayer } from "~/components/offline/offline-layer";
+import { Toaster } from "~/components/ui/toaster";
 
 export const metadata: Metadata = {
   title: "Paddle Prints",
@@ -44,7 +45,10 @@ export default function RootLayout({
     <html lang="en" className={`${geist.variable} ${nunito.variable}`}>
       <body>
         <TRPCReactProvider>
-          <OfflineLayer>{children}</OfflineLayer>
+          <OfflineLayer>
+            {children}
+            <Toaster />
+          </OfflineLayer>
         </TRPCReactProvider>
       </body>
     </html>
