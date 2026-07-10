@@ -81,6 +81,11 @@ export default async function RouteDetailPage({
               {typeLabel(route.type)} &middot;{" "}
               {route.shape === "out_and_back" ? "Out & back" : "One-way"}
             </p>
+            {route.description ? (
+              <p className="text-river-700 mt-2 text-sm">
+                {route.description}
+              </p>
+            ) : null}
           </div>
 
           <div className="grid grid-cols-2 gap-2 text-sm">

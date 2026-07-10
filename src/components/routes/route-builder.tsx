@@ -73,6 +73,7 @@ export function RouteBuilder() {
   const [takeOut, setTakeOut] = useState<Waypoint | null>(null);
   const [shape, setShape] = useState<RouteShape>("one_way");
   const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
 
   // Refs so the once-registered map click handler always sees current values.
   const modeRef = useRef(mode);
@@ -330,6 +331,7 @@ export function RouteBuilder() {
         name: name.trim(),
         type: "river",
         shape,
+        description: description.trim() || undefined,
         geometry: {
           type: "LineString",
           coordinates: riverData.geometry.coordinates.map(
@@ -342,6 +344,7 @@ export function RouteBuilder() {
         name: name.trim(),
         type: "waypoint",
         shape,
+        description: description.trim() || undefined,
         geometry: {
           type: "LineString",
           coordinates: waypoints.map((wp) => [wp.lng, wp.lat]),
@@ -459,6 +462,15 @@ export function RouteBuilder() {
             placeholder="Name this route"
             maxLength={80}
             className="border-river-200 focus:border-sunset-400 focus:ring-sunset-200 min-h-11 rounded-xl border px-4 py-2 outline-none focus:ring-2"
+          />
+
+          <textarea
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="Describe this route (optional)"
+            maxLength={2000}
+            rows={2}
+            className="border-river-200 focus:border-sunset-400 focus:ring-sunset-200 rounded-xl border px-4 py-2 outline-none focus:ring-2 resize-none"
           />
 
           <div className="flex items-center gap-2">
