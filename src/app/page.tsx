@@ -2,20 +2,11 @@ import { headers } from "next/headers";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
+import { FeedList } from "~/components/feed/feed-list";
 import { InstallNudge } from "~/components/offline/install-nudge";
 import { MeLink } from "~/components/offline/me-link";
 import { auth } from "~/server/auth";
 import { api } from "~/trpc/server";
-
-const METERS_PER_MILE = 1609.344;
-const MPS_TO_MPH = 2.2369363;
-
-function shortElapsed(totalS: number) {
-  const s = Math.max(0, Math.floor(totalS));
-  const h = Math.floor(s / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  return h > 0 ? `${h}:${String(m).padStart(2, "0")}` : `${m} min`;
-}
 
 export default async function Home() {
   const session = await auth.api.getSession({ headers: await headers() });
@@ -70,46 +61,7 @@ export default async function Home() {
             Crew feed
           </h2>
 
-          {feed.length === 0 ? (
-            <div className="border-river-700 rounded-2xl border border-dashed p-6 text-center">
-              <p className="text-river-200 text-sm">
-                No paddles logged yet. Pick a route and tap Start paddle to be
-                first on the board.
-              </p>
-            </div>
-          ) : (
-            <ul className="flex flex-col gap-2">
-              {feed.map((p) => {
-                const miles = (p.distanceM / METERS_PER_MILE).toFixed(1);
-                const mph = (p.avgSpeedMps * MPS_TO_MPH).toFixed(1);
-                return (
-                  <li key={p.id}>
-                    <Link
-                      href={`/paddles/${p.id}`}
-                      className="bg-river-900/60 hover:bg-river-900 active:bg-river-900 block rounded-2xl p-4 shadow transition-colors"
-                    >
-                      <p className="font-semibold">
-                        <span className="text-white">{p.userName}</span>{" "}
-                        <span className="text-river-300">paddled</span>{" "}
-                        <span className="text-sunset-300">
-                          {p.routeName ?? "a free paddle"}
-                        </span>
-                      </p>
-                      <p className="text-river-200 mt-1 text-sm tabular-nums">
-                        {miles} mi in {shortElapsed(p.elapsedS)} · avg {mph} mph
-                      </p>
-                      <p className="text-river-400 mt-0.5 text-xs">
-                        {new Date(p.startedAt).toLocaleDateString([], {
-                          month: "short",
-                          day: "numeric",
-                        })}
-                      </p>
-                    </Link>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
+          <FeedList initial={feed} />
         </section>
       </div>
     </main>
