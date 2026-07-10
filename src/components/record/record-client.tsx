@@ -101,6 +101,7 @@ export function RecordClient({ route }: { route: RecordRoute | null }) {
 
   const note = useRecorder((s) => s.note);
   const setNote = useRecorder((s) => s.setNote);
+  const headingDeg = useRecorder((s) => s.headingDeg);
 
   const machine = useRecorder((s) => s.machine);
   const progress = useRecorder((s) => s.progress);
@@ -444,6 +445,7 @@ export function RecordClient({ route }: { route: RecordRoute | null }) {
             routeCoords={route?.coords ?? null}
             livePos={livePos}
             snapped={progress?.snapped ?? null}
+            headingDeg={headingDeg}
             followSuspended={placingPoi}
             onMap={setNavMap}
             className="h-full w-full"

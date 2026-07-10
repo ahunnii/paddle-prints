@@ -5,7 +5,7 @@
  * with delete, total device usage from navigator.storage.estimate(), and the pending-sync queue with
  * a "Sync now" button and any dead-lettered errors.
  */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { deleteTrip } from "~/lib/offline/download-trip";
 import { formatBytes } from "~/lib/offline/format";
@@ -16,6 +16,7 @@ import {
   useStorageSummary,
 } from "~/lib/offline/use-offline";
 import { db } from "~/lib/offline/db";
+import { useSettings } from "~/lib/settings/use-settings";
 import { SignOutButton } from "~/app/_components/sign-out-button";
 
 const MPS_TO_MPH = 2.2369363;
@@ -41,6 +42,16 @@ export function MeClient({
   const pending = usePendingCounts();
   const deadLetters = useDeadLetters();
   const [syncing, setSyncing] = useState(false);
+
+  // zustand's `persist` middleware hydrates from localStorage after the first client render, so
+  // rendering these toggles from the store before mount would show the SSR default (board / share
+  // on) and then possibly flip -- gate on mount to avoid the hydration-mismatch flash.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+  const markerStyle = useSettings((s) => s.markerStyle);
+  const setMarkerStyle = useSettings((s) => s.setMarkerStyle);
+  const sharePresence = useSettings((s) => s.sharePresence);
+  const setSharePresence = useSettings((s) => s.setSharePresence);
 
   async function handleSync() {
     setSyncing(true);
@@ -100,6 +111,71 @@ export function MeClient({
               ))}
             </div>
           )}
+        </section>
+
+        {/* Preferences ------------------------------------------------------- */}
+        <section className="flex flex-col gap-4 rounded-3xl bg-white/10 p-5">
+          <h2 className="text-river-100 text-xs font-bold uppercase tracking-widest">
+            Preferences
+          </h2>
+
+          <div className="flex flex-col gap-2">
+            <p className="text-sm font-semibold text-white">Live marker</p>
+            <div className="flex items-center gap-1 rounded-full bg-river-900/50 p-1">
+              <button
+                type="button"
+                disabled={!mounted}
+                onClick={() => setMarkerStyle("board")}
+                className={`min-h-10 flex-1 rounded-full px-3 text-sm font-semibold transition-colors ${
+                  mounted && markerStyle === "board"
+                    ? "bg-sunset-500 text-white"
+                    : "text-river-300"
+                }`}
+              >
+                Board 🏄
+              </button>
+              <button
+                type="button"
+                disabled={!mounted}
+                onClick={() => setMarkerStyle("dot")}
+                className={`min-h-10 flex-1 rounded-full px-3 text-sm font-semibold transition-colors ${
+                  mounted && markerStyle === "dot"
+                    ? "bg-sunset-500 text-white"
+                    : "text-river-300"
+                }`}
+              >
+                Classic dot ●
+              </button>
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-sm font-semibold text-white">
+                Share live location with the crew while recording
+              </p>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={mounted && sharePresence}
+                disabled={!mounted}
+                onClick={() => setSharePresence(!sharePresence)}
+                className={`relative h-7 w-12 shrink-0 rounded-full transition-colors ${
+                  mounted && sharePresence ? "bg-sunset-500" : "bg-river-900/70"
+                }`}
+              >
+                <span
+                  className={`absolute top-0.5 h-6 w-6 rounded-full bg-white shadow transition-transform ${
+                    mounted && sharePresence ? "translate-x-[1.375rem]" : "translate-x-0.5"
+                  }`}
+                />
+              </button>
+            </div>
+            <p className="text-river-400 text-xs">
+              Friends see you on the community map while you&apos;re recording. Updates every
+              minute or so and disappears when you finish.
+            </p>
+          </div>
         </section>
 
         {/* Pending sync ---------------------------------------------------- */}

@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import maplibregl, { type Map as MapLibreMap } from "maplibre-gl";
 
 import { BaseMap } from "~/components/map/base-map";
+import { createBoardMarkerEl } from "~/lib/map/board-marker-el";
+import { useSettings } from "~/lib/settings/use-settings";
 
 interface NavMapProps {
   /** Route line to follow ([lng,lat] pairs), or null for a free paddle. */
@@ -12,6 +14,8 @@ interface NavMapProps {
   livePos: { lng: number; lat: number } | null;
   /** Snapped-progress point along the route. */
   snapped: { lng: number; lat: number } | null;
+  /** Last finite GPS heading (degrees), or null. Used to rotate the board marker map-aligned. */
+  headingDeg?: number | null;
   /**
    * When true, follow mode is held off regardless of `follow` -- used while the paddler is placing a
    * POI (the crosshair needs the map to stay put under manual panning). Flipping this back to false
@@ -31,6 +35,7 @@ export function NavMap({
   routeCoords,
   livePos,
   snapped,
+  headingDeg = null,
   followSuspended = false,
   onMap,
   className,
@@ -39,7 +44,9 @@ export function NavMap({
   const [ready, setReady] = useState(false);
   // Follow mode keeps the map centred on live GPS; a user pan/pinch breaks it until they recenter.
   const [follow, setFollow] = useState(true);
+  const markerStyle = useSettings((s) => s.markerStyle);
   const liveMarker = useRef<maplibregl.Marker | null>(null);
+  const liveMarkerStyle = useRef<"board" | "dot" | null>(null);
   const snapMarker = useRef<maplibregl.Marker | null>(null);
   const centeredOnce = useRef(false);
 
@@ -89,23 +96,36 @@ export function NavMap({
     }
   }, [map, ready, routeCoords]);
 
-  // Live position dot + keep it centred (only while following and not suspended).
+  // Live position marker + keep it centred (only while following and not suspended). Rebuilt
+  // whenever the user's marker-style preference changes (board <-> classic dot).
   useEffect(() => {
     if (!map || !livePos) return;
-    if (!liveMarker.current) {
-      const el = document.createElement("div");
-      el.className =
-        "h-5 w-5 rounded-full border-2 border-white bg-sunset-500 shadow-[0_0_0_6px_rgba(249,115,22,0.25)]";
-      liveMarker.current = new maplibregl.Marker({ element: el });
+    if (!liveMarker.current || liveMarkerStyle.current !== markerStyle) {
+      liveMarker.current?.remove();
+      if (markerStyle === "board") {
+        liveMarker.current = new maplibregl.Marker({
+          element: createBoardMarkerEl(),
+          rotationAlignment: "map",
+        });
+      } else {
+        const el = document.createElement("div");
+        el.className =
+          "h-5 w-5 rounded-full border-2 border-white bg-sunset-500 shadow-[0_0_0_6px_rgba(249,115,22,0.25)]";
+        liveMarker.current = new maplibregl.Marker({ element: el });
+      }
+      liveMarkerStyle.current = markerStyle;
     }
     liveMarker.current.setLngLat([livePos.lng, livePos.lat]).addTo(map);
+    if (markerStyle === "board") {
+      liveMarker.current.setRotation(headingDeg ?? 0);
+    }
     if (!centeredOnce.current) {
       map.easeTo({ center: [livePos.lng, livePos.lat], zoom: 15, duration: 0 });
       centeredOnce.current = true;
     } else if (follow && !followSuspended) {
       map.easeTo({ center: [livePos.lng, livePos.lat], duration: 600 });
     }
-  }, [map, livePos, follow, followSuspended]);
+  }, [map, livePos, follow, followSuspended, markerStyle, headingDeg]);
 
   // Snapped-progress marker (route paddles only).
   useEffect(() => {
