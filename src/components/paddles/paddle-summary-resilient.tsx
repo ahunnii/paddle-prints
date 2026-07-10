@@ -218,8 +218,14 @@ function PaddleNote({
   const [saving, setSaving] = useState(false);
   const updateNote = api.paddles.updateNote.useMutation();
 
+  const lastPropNote = useRef(note);
   useEffect(() => {
-    if (!editing) setDisplay(note);
+    // Reseed only when the incoming prop actually changes -- the editing flag flipping false
+    // after a save must not clobber the freshly saved value with the stale server prop.
+    if (note !== lastPropNote.current) {
+      lastPropNote.current = note;
+      if (!editing) setDisplay(note);
+    }
   }, [note, editing]);
 
   async function save() {
