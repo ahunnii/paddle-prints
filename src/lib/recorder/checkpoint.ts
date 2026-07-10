@@ -22,6 +22,8 @@ export interface Checkpoint {
   tripType: TripType;
   machine: RecorderState;
   progress: MatchState | null;
+  /** Free-text trip note. Optional so pre-`note` checkpoints still restore (hydrated as ""). */
+  note?: string;
   savedAt: number;
 }
 

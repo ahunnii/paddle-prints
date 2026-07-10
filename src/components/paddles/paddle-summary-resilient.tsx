@@ -7,12 +7,16 @@
  * "waiting to sync" badge. The map draws from the cached trip's route geometry + the queued track, so
  * it works with zero network.
  */
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useLiveQuery } from "dexie-react-hooks";
 
 import { FloatingHeader } from "~/components/layout/floating-header";
 import { PaddleMap } from "~/components/paddles/paddle-map";
+import { toast } from "~/components/ui/toaster";
 import { db } from "~/lib/offline/db";
+import { api } from "~/trpc/react";
 
 const METERS_PER_MILE = 1609.344;
 const MPS_TO_MPH = 2.2369363;
@@ -29,6 +33,8 @@ export interface SummaryData {
   avgSpeedMps: number;
   trackCoords: Array<[number, number]> | null;
   routeCoords: Array<[number, number]> | null;
+  note: string | null;
+  isOwner: boolean;
   pending: boolean;
 }
 
@@ -72,10 +78,29 @@ export function PaddleSummaryResilient({
       avgSpeedMps: input.avgSpeedMps,
       trackCoords: input.trackGeom?.coordinates ?? null,
       routeCoords: trip?.route.coords ?? null,
+      note: input.note ?? null,
+      isOwner: true,
       pending: true,
     };
     return data;
   }, [id, !!server]);
+
+  const router = useRouter();
+
+  // Race fix: if a pending paddle syncs away while this summary is open, its pendingPaddles row is
+  // deleted -> `local` transitions data -> null and (with no server copy) the page would flip to
+  // "not found". Instead refresh so the server component re-reads the now-synced row. Guard against
+  // a refresh loop by only firing on the actual data -> null transition.
+  const hadLocal = useRef(false);
+  useEffect(() => {
+    if (server) return;
+    if (local) {
+      hadLocal.current = true;
+    } else if (local === null && hadLocal.current) {
+      hadLocal.current = false;
+      router.refresh();
+    }
+  }, [server, local, router]);
 
   const data = server ?? local;
 
@@ -156,9 +181,129 @@ export function PaddleSummaryResilient({
             <Cell label="Moving" value={formatElapsed(data.movingS)} />
             <Cell label="Avg speed" value={`${avgMph} mph`} />
           </div>
+
+          <PaddleNote
+            id={id}
+            note={data.note}
+            isOwner={data.isOwner}
+            pending={data.pending}
+          />
         </div>
       </div>
     </main>
+  );
+}
+
+/**
+ * The trip note on the summary card. A read-only paragraph for everyone; owners get an Edit toggle
+ * that swaps in a textarea. Save routes to the queue (pending paddle, dotted-keypath Dexie update so
+ * the note ships with the eventual create) or to `updateNote` (already-synced paddle).
+ */
+function PaddleNote({
+  id,
+  note,
+  isOwner,
+  pending,
+}: {
+  id: string;
+  note: string | null;
+  isOwner: boolean;
+  pending: boolean;
+}) {
+  const [editing, setEditing] = useState(false);
+  // Local display copy so a synced edit is reflected immediately without a full refresh. Reseeded
+  // from the prop when not editing (e.g. a pending row's live note changes underneath us).
+  const [display, setDisplay] = useState(note);
+  const [draft, setDraft] = useState(note ?? "");
+  const [saving, setSaving] = useState(false);
+  const updateNote = api.paddles.updateNote.useMutation();
+
+  useEffect(() => {
+    if (!editing) setDisplay(note);
+  }, [note, editing]);
+
+  async function save() {
+    const trimmed = draft.trim();
+    const value = trimmed.length > 0 ? trimmed : null;
+    setSaving(true);
+    try {
+      if (pending) {
+        // Dexie dotted-keypath update: patches input.note inside the queued row in place, so the
+        // note travels with the create when the queue drains. useLiveQuery re-renders the summary.
+        await db().pendingPaddles.update(id, { "input.note": value });
+        setDisplay(value);
+      } else {
+        const row = await updateNote.mutateAsync({ id, note: trimmed });
+        setDisplay(row.note);
+      }
+      toast("Note saved");
+      setEditing(false);
+    } catch {
+      toast("Couldn't save the note. Try again.", "error");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (editing) {
+    return (
+      <div className="flex flex-col gap-2">
+        <textarea
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          rows={4}
+          maxLength={2000}
+          autoFocus
+          placeholder="Conditions, wildlife, who came along…"
+          className="text-river-950 placeholder:text-river-400 focus:border-river-400 w-full resize-none rounded-xl border border-river-200 bg-white px-3 py-2 text-sm outline-none"
+        />
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={() => void save()}
+            disabled={saving}
+            className="bg-sunset-500 active:bg-sunset-600 rounded-xl px-4 py-1.5 text-sm font-bold text-white disabled:opacity-60"
+          >
+            {saving ? "Saving…" : "Save"}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setDraft(display ?? "");
+              setEditing(false);
+            }}
+            disabled={saving}
+            className="text-river-600 rounded-xl px-4 py-1.5 text-sm font-semibold disabled:opacity-60"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!display && !isOwner) return null;
+
+  return (
+    <div className="flex flex-col gap-1">
+      {display ? (
+        <p className="text-river-700 whitespace-pre-wrap text-sm">{display}</p>
+      ) : (
+        <p className="text-river-400 text-sm italic">No notes yet.</p>
+      )}
+      {isOwner ? (
+        <button
+          type="button"
+          onClick={() => {
+            setDraft(display ?? "");
+            setEditing(true);
+          }}
+          className="text-sunset-600 self-start text-sm font-semibold"
+        >
+          {display ? "Edit note" : "Add a note"}
+        </button>
+      ) : null}
+    </div>
   );
 }
 

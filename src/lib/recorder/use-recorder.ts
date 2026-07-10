@@ -84,6 +84,14 @@ interface RecorderStore {
    * off, worth hinting at, distinct from an outright permission denial. */
   lowAccuracyHint: boolean;
 
+  /** Free-text trip note, editable before START and while recording. Lives in the store so it
+   * survives the pre-start -> nav transition and is captured into the checkpoint. */
+  note: string;
+  setNote: (note: string) => void;
+  /** Last finite compass heading (degrees) from the GPS watch; null until one arrives. iOS reports
+   * null/NaN when stationary, so we keep the last good value. Consumed by the board marker. */
+  headingDeg: number | null;
+
   configure: (cfg: RecorderConfig) => void;
   start: () => Promise<void>;
   pause: () => void;
@@ -140,6 +148,7 @@ export const useRecorder = create<RecorderStore>((set, get) => {
       tripType: s.tripType,
       machine: s.machine,
       progress: s.match,
+      note: s.note,
       savedAt: Date.now(),
     });
   }
@@ -196,6 +205,12 @@ export const useRecorder = create<RecorderStore>((set, get) => {
             t - runtime.coarseStreakStartedAt >= ACCURACY_HINT_WINDOW_MS;
 
           set({ geoError: null, geoErrorCode: null, lowAccuracyHint });
+
+          // Heading is often null/NaN when stationary (and always null on desktop); keep the last
+          // finite value so the board marker doesn't snap back to north between good fixes.
+          const h = pos.coords.heading;
+          if (h != null && Number.isFinite(h)) set({ headingDeg: h });
+
           dispatch({
             type: "FIX",
             point: {
@@ -261,6 +276,12 @@ export const useRecorder = create<RecorderStore>((set, get) => {
     geoErrorCode: null,
     lowAccuracyHint: false,
 
+    note: "",
+    setNote(note) {
+      set({ note });
+    },
+    headingDeg: null,
+
     configure(cfg) {
       const routeModel =
         cfg.routeCoords && cfg.routeCoords.length >= 2
@@ -281,6 +302,8 @@ export const useRecorder = create<RecorderStore>((set, get) => {
         geoError: null,
         geoErrorCode: null,
         lowAccuracyHint: false,
+        note: "",
+        headingDeg: null,
       });
     },
 
@@ -313,6 +336,7 @@ export const useRecorder = create<RecorderStore>((set, get) => {
       set({
         machine: reducer(initialState(), { type: "RESTORE", state: cp.machine }),
         match: cp.progress,
+        note: cp.note ?? "",
       });
       // Recompute the display progress/eta from the restored cursor.
       if (routeModel && cp.progress) {

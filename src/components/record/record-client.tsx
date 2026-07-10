@@ -63,6 +63,7 @@ function buildInput(
   routeId: string | null,
   tripType: TripType,
   id: string,
+  note: string,
 ) {
   // Full fidelity into trackJson; ~10 m Douglas-Peucker into the stored geometry.
   const simplified = simplifyTrack(machine.track, 10);
@@ -82,6 +83,7 @@ function buildInput(
         ? ({ type: "LineString" as const, coordinates: coords })
         : null,
     trackJson: machine.track.length > 0 ? machine.track : null,
+    note: note.trim().length > 0 ? note.trim() : null,
   };
 }
 
@@ -96,6 +98,9 @@ export function RecordClient({ route }: { route: RecordRoute | null }) {
   const restoreFrom = useRecorder((s) => s.restoreFrom);
   const discard = useRecorder((s) => s.discard);
   const dispose = useRecorder((s) => s.dispose);
+
+  const note = useRecorder((s) => s.note);
+  const setNote = useRecorder((s) => s.setNote);
 
   const machine = useRecorder((s) => s.machine);
   const progress = useRecorder((s) => s.progress);
@@ -114,6 +119,7 @@ export function RecordClient({ route }: { route: RecordRoute | null }) {
   const [placingPoi, setPlacingPoi] = useState(false);
   const [savingPoi, setSavingPoi] = useState(false);
   const [poiError, setPoiError] = useState<string | null>(null);
+  const [showNotes, setShowNotes] = useState(false);
   const paddleId = useRef<string | null>(null);
 
   // Add-a-spot centers a crosshair over the map; save reads the map center and ALWAYS queues to
@@ -173,12 +179,25 @@ export function RecordClient({ route }: { route: RecordRoute | null }) {
   // navigates to the summary immediately. The summary renders from IndexedDB until the sync lands, so
   // this path is identical online and offline -- no "save failed, retry" dead-ends on the river.
   const submit = useCallback(async () => {
-    const m = useRecorder.getState().machine;
+    // Read the machine AND note straight from the store at finish time, not from a stale render
+    // closure -- a note typed after the last commit still ships.
+    const state = useRecorder.getState();
     paddleId.current ??= crypto.randomUUID();
-    const input = buildInput(m, route?.id ?? null, tripType, paddleId.current);
+    const input = buildInput(
+      state.machine,
+      route?.id ?? null,
+      tripType,
+      paddleId.current,
+      state.note,
+    );
     await queuePaddle(input);
     clearCheckpoint();
     void syncQueue();
+    toast(
+      navigator.onLine
+        ? "Trip saved"
+        : "Saved offline — will sync when online",
+    );
     router.push(`/paddles/${input.id}`);
   }, [route?.id, tripType, router]);
 
@@ -187,6 +206,20 @@ export function RecordClient({ route }: { route: RecordRoute | null }) {
     finish();
     void submit();
   }, [finish, submit]);
+
+  // Guard the brief window between finish() and the router.push landing: the paddle has been queued
+  // to IndexedDB (or is a millisecond from it) but the summary hasn't loaded yet. Closing the tab
+  // here would be the only true data-loss gap. Recording in progress is NOT guarded -- the
+  // checkpoint/resume system already covers a reload mid-paddle.
+  useEffect(() => {
+    if (machine.status !== "finished") return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [machine.status]);
 
   const status = machine.status;
   const isPreStart = status === "idle";
@@ -293,6 +326,20 @@ export function RecordClient({ route }: { route: RecordRoute | null }) {
           </p>
         </div>
 
+        <label className="mb-3 block">
+          <span className="text-river-400 mb-1 block text-xs uppercase tracking-widest">
+            Trip notes (optional)
+          </span>
+          <textarea
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            rows={2}
+            maxLength={2000}
+            placeholder="Conditions, who came along, anything to remember…"
+            className="text-river-50 placeholder:text-river-500 focus:border-river-500 w-full resize-none rounded-2xl border border-river-800 bg-river-900 px-3 py-2 text-sm outline-none"
+          />
+        </label>
+
         <button
           type="button"
           onClick={() => void start()}
@@ -351,8 +398,15 @@ export function RecordClient({ route }: { route: RecordRoute | null }) {
         ) : null}
         <button
           type="button"
-          onClick={() => setShowMap((v) => !v)}
+          onClick={() => setShowNotes(true)}
           className="ml-auto rounded-full bg-white/15 px-3 py-1 text-white"
+        >
+          📝 Notes{note.trim().length > 0 ? " •" : ""}
+        </button>
+        <button
+          type="button"
+          onClick={() => setShowMap((v) => !v)}
+          className="rounded-full bg-white/15 px-3 py-1 text-white"
         >
           {showMap ? "Stats only" : "Show map"}
         </button>
@@ -475,6 +529,34 @@ export function RecordClient({ route }: { route: RecordRoute | null }) {
           {isFinished ? "Saving…" : "Finish"}
         </button>
       </div>
+
+      {/* Notes bottom sheet. Every keystroke hits the zustand store, which the 15s checkpoint
+          interval (and pause/visibility saves) persists -- no extra plumbing. */}
+      {showNotes ? (
+        <div className="absolute inset-0 z-20 flex flex-col justify-end bg-black/90 pb-[max(1rem,env(safe-area-inset-bottom))]">
+          <div className="flex flex-col gap-3 px-4 pt-4">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-bold text-white">Trip notes</h2>
+              <button
+                type="button"
+                onClick={() => setShowNotes(false)}
+                className="rounded-full bg-white/15 px-4 py-1.5 text-sm font-bold text-white active:bg-white/25"
+              >
+                Done
+              </button>
+            </div>
+            <textarea
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              rows={5}
+              maxLength={2000}
+              autoFocus
+              placeholder="Conditions, wildlife, who came along…"
+              className="w-full resize-none rounded-2xl border border-white/20 bg-white/5 px-3 py-2 text-base text-white placeholder:text-white/40 outline-none focus:border-white/40"
+            />
+          </div>
+        </div>
+      ) : null}
     </main>
   );
 }
