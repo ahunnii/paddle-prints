@@ -40,6 +40,7 @@ export const routesRouter = createTRPCRouter({
         type: z.enum(routeType.enumValues),
         shape: z.enum(routeShape.enumValues),
         geometry: lineStringGeometry,
+        description: z.string().trim().max(2000).optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -52,6 +53,10 @@ export const routesRouter = createTRPCRouter({
           type: input.type,
           shape: input.shape,
           geom: input.geometry,
+          description:
+            input.description && input.description.length > 0
+              ? input.description
+              : null,
           // Never trust a client-supplied distance -- recompute it authoritatively from the
           // submitted geometry using a geography cast (accounts for the earth's curvature).
           distanceM: sql<number>`ST_Length(ST_GeomFromGeoJSON(${geometryJson})::geography)`,
@@ -103,6 +108,7 @@ export const routesRouter = createTRPCRouter({
           shape: routes.shape,
           geom: routes.geom,
           distanceM: routes.distanceM,
+          description: routes.description,
           createdBy: routes.createdBy,
           createdAt: routes.createdAt,
           creatorName: user.name,

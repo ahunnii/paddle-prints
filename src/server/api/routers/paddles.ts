@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
@@ -43,6 +43,9 @@ export const paddlesRouter = createTRPCRouter({
         avgSpeedMps: z.number().nonnegative(),
         trackGeom: trackGeometry.nullable(),
         trackJson: z.array(trackSample).nullable(),
+        // Optional/nullable and MUST stay that way: paddles already queued in a client's
+        // IndexedDB from before this field existed will replay without it.
+        note: z.string().trim().max(2000).nullable().optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -59,6 +62,7 @@ export const paddlesRouter = createTRPCRouter({
           distanceM: input.distanceM,
           avgSpeedMps: input.avgSpeedMps,
           trackJson: input.trackJson,
+          note: input.note && input.note.length > 0 ? input.note : null,
           // Omit trackGeom entirely when null so the geometry column stays NULL rather than being
           // fed a "null" GeoJSON literal.
           ...(input.trackGeom ? { trackGeom: input.trackGeom } : {}),
@@ -121,6 +125,7 @@ export const paddlesRouter = createTRPCRouter({
           distanceM: paddles.distanceM,
           avgSpeedMps: paddles.avgSpeedMps,
           trackGeom: paddles.trackGeom,
+          note: paddles.note,
           userName: user.name,
           routeId: paddles.routeId,
           routeName: routes.name,
@@ -131,6 +136,27 @@ export const paddlesRouter = createTRPCRouter({
         .innerJoin(user, eq(paddles.userId, user.id))
         .leftJoin(routes, eq(paddles.routeId, routes.id))
         .where(eq(paddles.id, input.id));
+
+      if (!row) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Paddle not found" });
+      }
+      return row;
+    }),
+
+  /** Edit the note on an already-saved paddle. Owner-only. */
+  updateNote: protectedProcedure
+    .input(z.object({ id: z.string().uuid(), note: z.string().trim().max(2000) }))
+    .mutation(async ({ ctx, input }) => {
+      const [row] = await ctx.db
+        .update(paddles)
+        .set({ note: input.note.length > 0 ? input.note : null })
+        .where(
+          and(
+            eq(paddles.id, input.id),
+            eq(paddles.userId, ctx.session.user.id),
+          ),
+        )
+        .returning({ id: paddles.id, note: paddles.note });
 
       if (!row) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Paddle not found" });

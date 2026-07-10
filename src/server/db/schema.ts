@@ -60,6 +60,7 @@ export const routes = createTable(
     shape: routeShape("shape").notNull().default("one_way"),
     geom: lineString("geom").notNull(),
     distanceM: real("distance_m").notNull(),
+    description: text("description"),
     createdBy: text("created_by")
       .notNull()
       .references(() => user.id),
@@ -90,6 +91,7 @@ export const paddles = createTable(
     avgSpeedMps: real("avg_speed_mps").notNull(),
     trackGeom: lineString("track_geom"),
     trackJson: jsonb("track_json"),
+    note: text("note"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
   (table) => [
@@ -117,6 +119,20 @@ export const pois = createTable(
   (table) => [index("pois_geom_idx").using("gist", table.geom)],
 );
 
+/**
+ * A user's most recent live location while recording a trip, for the community map's "who's out
+ * there right now" layer. One row per user -- each heartbeat overwrites the previous position.
+ * Rows older than 5 minutes are treated as stale and filtered out at query time.
+ */
+export const presence = createTable("presence", {
+  userId: text("user_id")
+    .primaryKey()
+    .references(() => user.id),
+  geom: geoPoint("geom").notNull(),
+  tripType: routeType("trip_type").notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
 export const routesRelations = relations(routes, ({ one, many }) => ({
   creator: one(user, {
     fields: [routes.createdBy],
@@ -139,6 +155,13 @@ export const paddlesRelations = relations(paddles, ({ one }) => ({
 export const poisRelations = relations(pois, ({ one }) => ({
   creator: one(user, {
     fields: [pois.createdBy],
+    references: [user.id],
+  }),
+}));
+
+export const presenceRelations = relations(presence, ({ one }) => ({
+  user: one(user, {
+    fields: [presence.userId],
     references: [user.id],
   }),
 }));

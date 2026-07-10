@@ -1,6 +1,7 @@
 import { healthRouter } from "~/server/api/routers/health";
 import { paddlesRouter } from "~/server/api/routers/paddles";
 import { poisRouter } from "~/server/api/routers/pois";
+import { presenceRouter } from "~/server/api/routers/presence";
 import { riversRouter } from "~/server/api/routers/rivers";
 import { routesRouter } from "~/server/api/routers/routes";
 import { createCallerFactory, createTRPCRouter } from "~/server/api/trpc";
@@ -14,6 +15,7 @@ export const appRouter = createTRPCRouter({
   health: healthRouter,
   paddles: paddlesRouter,
   pois: poisRouter,
+  presence: presenceRouter,
   rivers: riversRouter,
   routes: routesRouter,
 });
