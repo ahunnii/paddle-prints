@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import type { Map as MapLibreMap } from "maplibre-gl";
 
 import { nextPoiAhead, type CorridorPoi } from "~/lib/recorder/next-poi";
 import { simplifyTrack } from "~/lib/recorder/simplify";
@@ -13,10 +14,11 @@ import {
   useRecorder,
 } from "~/lib/recorder/use-recorder";
 import type { Checkpoint } from "~/lib/recorder/checkpoint";
-import { POI_CATEGORIES, poiMeta, truncateNote } from "~/lib/pois";
-import { queuePaddle, queuePoi, syncQueue } from "~/lib/offline/sync";
-import type { PoiInput } from "~/lib/offline/db";
+import { poiMeta, truncateNote, type PoiCategory } from "~/lib/pois";
+import { queuePaddle, savePoiQueued, syncQueue } from "~/lib/offline/sync";
 import { NavMap } from "~/components/record/nav-map";
+import { PoiPlacement } from "~/components/map/poi-placement";
+import { toast } from "~/components/ui/toaster";
 
 const METERS_PER_MILE = 1609.344;
 // `GeolocationPositionError.PERMISSION_DENIED` -- hardcoded rather than referencing the DOM
@@ -108,28 +110,36 @@ export function RecordClient({ route }: { route: RecordRoute | null }) {
   const [tripType, setTripType] = useState<TripType>(route?.type ?? "river");
   const [showMap, setShowMap] = useState(true);
   const [pending, setPending] = useState<Checkpoint | null>(null);
-  const [quickAdd, setQuickAdd] = useState<{ lng: number; lat: number } | null>(null);
-  const [addingPoi, setAddingPoi] = useState(false);
+  const [navMap, setNavMap] = useState<MapLibreMap | null>(null);
+  const [placingPoi, setPlacingPoi] = useState(false);
+  const [savingPoi, setSavingPoi] = useState(false);
+  const [poiError, setPoiError] = useState<string | null>(null);
   const paddleId = useRef<string | null>(null);
 
-  const handleLongPress = useCallback((point: { lng: number; lat: number }) => {
-    setQuickAdd(point);
-  }, []);
-
-  // Quick-add POIs are ALWAYS queued to IndexedDB first (uniform online + offline path), then a
-  // background sync ships them. The server dedupes by the client uuid, so this can't duplicate.
-  const addPoi = useCallback(
-    async (category: PoiInput["category"], point: { lng: number; lat: number }) => {
-      setAddingPoi(true);
+  // Add-a-spot centers a crosshair over the map; save reads the map center and ALWAYS queues to
+  // IndexedDB first (uniform online + offline), then a background sync ships it. Server dedupes by
+  // the client uuid, so this can't duplicate. Mirrors the community map's handler.
+  const handleSavePoi = useCallback(
+    async (category: PoiCategory, note: string) => {
+      if (!navMap) return;
+      setSavingPoi(true);
+      setPoiError(null);
       try {
-        await queuePoi({ id: crypto.randomUUID(), category, point });
-        void syncQueue();
-        setQuickAdd(null);
+        const center = navMap.getCenter();
+        const status = await savePoiQueued({
+          category,
+          note: note.trim().length > 0 ? note.trim() : undefined,
+          point: { lng: center.lng, lat: center.lat },
+        });
+        toast(status === "synced" ? "Spot saved" : "Saved offline — will sync when online");
+        setPlacingPoi(false);
+      } catch (err) {
+        setPoiError(err instanceof Error ? err.message : "Couldn't save. Try again.");
       } finally {
-        setAddingPoi(false);
+        setSavingPoi(false);
       }
     },
-    [],
+    [navMap],
   );
 
   const nextPoi =
@@ -380,35 +390,35 @@ export function RecordClient({ route }: { route: RecordRoute | null }) {
             routeCoords={route?.coords ?? null}
             livePos={livePos}
             snapped={progress?.snapped ?? null}
-            onLongPress={isFinished ? undefined : handleLongPress}
+            followSuspended={placingPoi}
+            onMap={setNavMap}
             className="h-full w-full"
           />
 
-          {quickAdd ? (
-            <div className="absolute inset-x-0 bottom-0 z-20 flex flex-col gap-2 bg-black/90 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
-              <p className="text-xs font-semibold text-white/70">Add a spot here</p>
-              <div className="flex gap-2 overflow-x-auto overscroll-x-contain pb-1">
-                {POI_CATEGORIES.map((c) => (
-                  <button
-                    key={c.category}
-                    type="button"
-                    onClick={() => void addPoi(c.category, quickAdd)}
-                    disabled={addingPoi}
-                    className="flex min-h-11 shrink-0 items-center gap-1.5 rounded-full bg-white/10 px-3 text-sm font-semibold text-white active:bg-white/20 disabled:opacity-50"
-                  >
-                    <span>{c.emoji}</span>
-                    <span>{c.label}</span>
-                  </button>
-                ))}
-              </div>
-              <button
-                type="button"
-                onClick={() => setQuickAdd(null)}
-                className="min-h-9 self-start rounded-lg text-xs font-semibold text-white/60"
-              >
-                Cancel
-              </button>
-            </div>
+          <PoiPlacement
+            open={placingPoi}
+            saving={savingPoi}
+            error={poiError}
+            onCancel={() => {
+              setPlacingPoi(false);
+              setPoiError(null);
+            }}
+            onSave={(category, note) => void handleSavePoi(category, note)}
+          />
+
+          {/* "+ Add spot": bottom-left so it clears the recenter button (bottom-right). Hidden
+              while the placement card is open and after finishing. */}
+          {!placingPoi && !isFinished ? (
+            <button
+              type="button"
+              onClick={() => {
+                setPoiError(null);
+                setPlacingPoi(true);
+              }}
+              className="absolute bottom-3 left-3 z-10 flex min-h-11 items-center gap-1.5 rounded-full bg-white/15 px-4 text-sm font-bold text-white shadow-lg backdrop-blur active:bg-white/25"
+            >
+              ＋ Add spot
+            </button>
           ) : null}
         </div>
       ) : null}
