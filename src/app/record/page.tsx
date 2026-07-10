@@ -46,6 +46,8 @@ export default async function RecordPage({
           category: p.category,
           note: p.note,
           routeDistM: p.routeDistM,
+          lng: p.geom.coordinates[0]!,
+          lat: p.geom.coordinates[1]!,
         })),
         historicalSpeedMps: eta.speedMps,
       };

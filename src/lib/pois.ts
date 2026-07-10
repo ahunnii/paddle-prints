@@ -35,6 +35,13 @@ const POI_CATEGORY_MAP: Record<PoiCategory, PoiCategoryMeta> = Object.fromEntrie
   POI_CATEGORIES.map((c) => [c.category, c]),
 ) as Record<PoiCategory, PoiCategoryMeta>;
 
+/**
+ * The categories worth surfacing on the nav (recording) map -- safety-relevant only. The nav map is
+ * glanced at mid-paddle, so it deliberately omits softer categories (wildlife, campsite, scenic,
+ * other) that belong on the community map instead.
+ */
+export const NAV_POI_CATEGORIES: PoiCategory[] = ["hazard", "portage", "dock"];
+
 /** Look up display metadata for a category, falling back to "other" for anything unrecognized. */
 export function poiMeta(category: string): PoiCategoryMeta {
   return POI_CATEGORY_MAP[category as PoiCategory] ?? POI_CATEGORY_MAP.other;

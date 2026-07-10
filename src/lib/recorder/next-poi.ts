@@ -17,6 +17,9 @@ export interface CorridorPoi {
   note: string | null;
   /** Position along the route's outbound line, metres from the start (0..distanceM). */
   routeDistM: number;
+  /** Real-world coordinates, so the nav map can plot the same POI as a marker. */
+  lng: number;
+  lat: number;
 }
 
 export interface NextPoiAheadResult {

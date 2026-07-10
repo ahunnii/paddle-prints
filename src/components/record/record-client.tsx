@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import type { Map as MapLibreMap } from "maplibre-gl";
 
+import { useLiveQuery } from "dexie-react-hooks";
+
 import { nextPoiAhead, type CorridorPoi } from "~/lib/recorder/next-poi";
 import { simplifyTrack } from "~/lib/recorder/simplify";
 import type { RecorderState, TripType } from "~/lib/recorder/types";
@@ -14,11 +16,14 @@ import {
   useRecorder,
 } from "~/lib/recorder/use-recorder";
 import type { Checkpoint } from "~/lib/recorder/checkpoint";
-import { poiMeta, truncateNote, type PoiCategory } from "~/lib/pois";
+import { NAV_POI_CATEGORIES, poiMeta, truncateNote, type PoiCategory } from "~/lib/pois";
+import { db } from "~/lib/offline/db";
 import { queuePaddle, savePoiQueued, syncQueue } from "~/lib/offline/sync";
 import { NavMap } from "~/components/record/nav-map";
+import { NavPoiLayer, type NavPoi } from "~/components/record/nav-poi-layer";
 import { PoiPlacement } from "~/components/map/poi-placement";
 import { toast } from "~/components/ui/toaster";
+import { api } from "~/trpc/react";
 
 const METERS_PER_MILE = 1609.344;
 // `GeolocationPositionError.PERMISSION_DENIED` -- hardcoded rather than referencing the DOM
@@ -49,6 +54,18 @@ function formatElapsed(totalS: number) {
   const sec = s % 60;
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${h}:${pad(m)}:${pad(sec)}`;
+}
+
+interface Bbox {
+  west: number;
+  south: number;
+  east: number;
+  north: number;
+}
+
+/** Is this category one of the safety-relevant ones the nav map draws markers for? */
+function isNavCategory(category: string): boolean {
+  return (NAV_POI_CATEGORIES as string[]).includes(category);
 }
 
 function formatEtaClock(etaSeconds: number | undefined) {
@@ -117,6 +134,8 @@ export function RecordClient({ route }: { route: RecordRoute | null }) {
   const [showMap, setShowMap] = useState(true);
   const [pending, setPending] = useState<Checkpoint | null>(null);
   const [navMap, setNavMap] = useState<MapLibreMap | null>(null);
+  const [navBbox, setNavBbox] = useState<Bbox | null>(null);
+  const navBboxDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [placingPoi, setPlacingPoi] = useState(false);
   const [savingPoi, setSavingPoi] = useState(false);
   const [poiError, setPoiError] = useState<string | null>(null);
@@ -153,6 +172,67 @@ export function RecordClient({ route }: { route: RecordRoute | null }) {
     route && progress && !progress.offRoute && routeModel
       ? nextPoiAhead(route.pois, route.shape, routeModel.totalM, progress.progressM)
       : null;
+
+  // Nav-map POI markers (hazard/portage/dock only) -- merged from three sources and deduped by id:
+  // corridor POIs embedded in the downloaded route (work fully offline), viewport POIs fetched for
+  // whatever the nav map is currently showing (online only), and any not-yet-synced local POI so a
+  // hazard just dropped shows up instantly. Debounced moveend -> bbox, same pattern as the
+  // community map's `PoiLayer` feed.
+  useEffect(() => {
+    if (!navMap) return;
+    const updateBbox = () => {
+      const b = navMap.getBounds();
+      setNavBbox({ west: b.getWest(), south: b.getSouth(), east: b.getEast(), north: b.getNorth() });
+    };
+    const onMoveEnd = () => {
+      if (navBboxDebounceRef.current) clearTimeout(navBboxDebounceRef.current);
+      navBboxDebounceRef.current = setTimeout(updateBbox, 300);
+    };
+    if (navMap.loaded()) updateBbox();
+    else navMap.once("load", updateBbox);
+    navMap.on("moveend", onMoveEnd);
+    return () => {
+      navMap.off("moveend", onMoveEnd);
+      if (navBboxDebounceRef.current) clearTimeout(navBboxDebounceRef.current);
+    };
+  }, [navMap]);
+
+  // Silently best-effort: a failed/offline fetch just leaves viewport POIs empty (corridor + pending
+  // POIs still render) -- never surfaced as an error, and must never disturb the recording itself.
+  const navPoisInBboxQuery = api.pois.inBbox.useQuery(
+    navBbox ?? { west: 0, south: 0, east: 0, north: 0 },
+    { enabled: !!navBbox },
+  );
+  const pendingPois = useLiveQuery(() => db().pendingPois.toArray(), []) ?? [];
+
+  const navPois = useMemo(() => {
+    const byId = new Map<string, NavPoi>();
+    for (const p of route?.pois ?? []) {
+      if (!isNavCategory(p.category)) continue;
+      byId.set(p.id, { id: p.id, category: p.category, note: p.note, lng: p.lng, lat: p.lat });
+    }
+    for (const p of navPoisInBboxQuery.data ?? []) {
+      if (!isNavCategory(p.category)) continue;
+      byId.set(p.id, {
+        id: p.id,
+        category: p.category,
+        note: p.note,
+        lng: p.geom.coordinates[0]!,
+        lat: p.geom.coordinates[1]!,
+      });
+    }
+    for (const p of pendingPois) {
+      if (!isNavCategory(p.input.category) || byId.has(p.id)) continue;
+      byId.set(p.id, {
+        id: p.id,
+        category: p.input.category,
+        note: p.input.note ?? null,
+        lng: p.input.point.lng,
+        lat: p.input.point.lat,
+      });
+    }
+    return [...byId.values()];
+  }, [route?.pois, navPoisInBboxQuery.data, pendingPois]);
 
   // Configure the recorder for this page, and surface any live checkpoint as a resume offer.
   useEffect(() => {
@@ -450,6 +530,8 @@ export function RecordClient({ route }: { route: RecordRoute | null }) {
             onMap={setNavMap}
             className="h-full w-full"
           />
+
+          <NavPoiLayer map={navMap} pois={navPois} suspended={placingPoi} />
 
           <PoiPlacement
             open={placingPoi}
