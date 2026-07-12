@@ -19,6 +19,12 @@ const withSerwist = withSerwistInit({
 /** @type {import("next").NextConfig} */
 const config = {
   output: "standalone",
+  transpilePackages: [
+    "@paddle-prints/api",
+    "@paddle-prints/auth",
+    "@paddle-prints/db",
+    "@paddle-prints/recorder-core",
+  ],
 };
 
 export default withSerwist(config);
