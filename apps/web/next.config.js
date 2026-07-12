@@ -23,6 +23,7 @@ const config = {
     "@paddle-prints/api",
     "@paddle-prints/auth",
     "@paddle-prints/db",
+    "@paddle-prints/offline-core",
     "@paddle-prints/recorder-core",
   ],
 };

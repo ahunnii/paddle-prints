@@ -1,0 +1,22 @@
+{
+  "name": "@paddle-prints/offline-core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./sync": "./src/sync.ts",
+    "./tile-enum": "./src/tile-enum.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@mapbox/tile-cover": "^3.0.2",
+    "@turf/buffer": "^7.3.5",
+    "@turf/helpers": "^7.3.5"
+  },
+  "devDependencies": {
+    "@types/geojson": "^7946.0.16",
+    "typescript": "^5.8.2"
+  }
+}

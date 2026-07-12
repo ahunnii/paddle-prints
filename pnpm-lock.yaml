@@ -141,9 +141,6 @@ importers:
 
   apps/web:
     dependencies:
-      '@mapbox/tile-cover':
-        specifier: ^3.0.2
-        version: 3.0.2
       '@paddle-prints/api':
         specifier: workspace:*
         version: link:../../packages/api
@@ -153,6 +150,9 @@ importers:
       '@paddle-prints/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@paddle-prints/offline-core':
+        specifier: workspace:*
+        version: link:../../packages/offline-core
       '@paddle-prints/recorder-core':
         specifier: workspace:*
         version: link:../../packages/recorder-core
@@ -174,9 +174,6 @@ importers:
       '@trpc/server':
         specifier: ^11.0.0
         version: 11.18.0(typescript@5.9.3)
-      '@turf/buffer':
-        specifier: ^7.3.5
-        version: 7.3.5
       '@turf/helpers':
         specifier: ^7.3.5
         version: 7.3.5
@@ -328,6 +325,25 @@ importers:
       drizzle-kit:
         specifier: ^0.31.10
         version: 0.31.10
+      typescript:
+        specifier: ^5.8.2
+        version: 5.9.3
+
+  packages/offline-core:
+    dependencies:
+      '@mapbox/tile-cover':
+        specifier: ^3.0.2
+        version: 3.0.2
+      '@turf/buffer':
+        specifier: ^7.3.5
+        version: 7.3.5
+      '@turf/helpers':
+        specifier: ^7.3.5
+        version: 7.3.5
+    devDependencies:
+      '@types/geojson':
+        specifier: ^7946.0.16
+        version: 7946.0.16
       typescript:
         specifier: ^5.8.2
         version: 5.9.3

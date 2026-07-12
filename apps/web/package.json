@@ -15,10 +15,10 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@mapbox/tile-cover": "^3.0.2",
     "@paddle-prints/api": "workspace:*",
     "@paddle-prints/auth": "workspace:*",
     "@paddle-prints/db": "workspace:*",
+    "@paddle-prints/offline-core": "workspace:*",
     "@paddle-prints/recorder-core": "workspace:*",
     "@serwist/next": "^9.5.11",
     "@t3-oss/env-nextjs": "^0.12.0",
@@ -26,7 +26,6 @@
     "@trpc/client": "^11.0.0",
     "@trpc/react-query": "^11.0.0",
     "@trpc/server": "^11.0.0",
-    "@turf/buffer": "^7.3.5",
     "@turf/helpers": "^7.3.5",
     "@turf/length": "^7.3.5",
     "better-auth": "^1.6.23",
