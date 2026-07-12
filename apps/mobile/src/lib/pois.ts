@@ -1,32 +1,56 @@
 /**
- * Minimal POI display metadata for the recorder's next-POI-ahead banner (record.tsx). Mirrors
- * apps/web/src/lib/pois.ts's `poiMeta`/`truncateNote`, trimmed to what the stats-first mobile
- * recorder needs -- no map markers in this phase (maps land in Phase 3), so no ring color here.
+ * The single source of truth for how a POI category is presented: emoji, label, and ring color.
+ * Used everywhere a POI shows up -- community map markers, the route-detail list, and the recorder's
+ * next-POI banner -- so the same category always looks the same across the app. Kept in parity with
+ * apps/web/src/lib/pois.ts (only this comment differs).
  */
 
+export type PoiCategory =
+  | "hazard"
+  | "wildlife"
+  | "dock"
+  | "portage"
+  | "campsite"
+  | "scenic"
+  | "other";
+
 export interface PoiCategoryMeta {
-  category: string;
+  category: PoiCategory;
   emoji: string;
   label: string;
+  /** Hex color used for the marker's ring / accent. */
+  color: string;
 }
 
-const POI_CATEGORIES: PoiCategoryMeta[] = [
-  { category: "hazard", emoji: "⚠️", label: "Hazard" },
-  { category: "wildlife", emoji: "🐢", label: "Wildlife" },
-  { category: "dock", emoji: "⚓", label: "Dock" },
-  { category: "portage", emoji: "🚶", label: "Portage" },
-  { category: "campsite", emoji: "⛺", label: "Campsite" },
-  { category: "scenic", emoji: "🌅", label: "Scenic" },
-  { category: "other", emoji: "📍", label: "Other" },
+export const POI_CATEGORIES: PoiCategoryMeta[] = [
+  { category: "hazard", emoji: "⚠️", label: "Hazard", color: "#ef4444" },
+  { category: "wildlife", emoji: "🐢", label: "Wildlife", color: "#16a34a" },
+  { category: "dock", emoji: "⚓", label: "Dock", color: "#2b93b3" },
+  { category: "portage", emoji: "🚶", label: "Portage", color: "#f59e0b" },
+  { category: "campsite", emoji: "⛺", label: "Campsite", color: "#15803d" },
+  { category: "scenic", emoji: "🌅", label: "Scenic", color: "#f97316" },
+  { category: "other", emoji: "📍", label: "Other", color: "#6b7280" },
 ];
 
-const POI_CATEGORY_MAP: Record<string, PoiCategoryMeta> = Object.fromEntries(
+const POI_CATEGORY_MAP: Record<PoiCategory, PoiCategoryMeta> = Object.fromEntries(
   POI_CATEGORIES.map((c) => [c.category, c]),
-);
+) as Record<PoiCategory, PoiCategoryMeta>;
+
+/**
+ * The categories worth surfacing on the nav (recording) map -- safety-relevant only. The nav map is
+ * glanced at mid-paddle, so it deliberately omits softer categories (wildlife, campsite, scenic,
+ * other) that belong on the community map instead.
+ */
+export const NAV_POI_CATEGORIES: PoiCategory[] = ["hazard", "portage", "dock"];
 
 /** Look up display metadata for a category, falling back to "other" for anything unrecognized. */
 export function poiMeta(category: string): PoiCategoryMeta {
-  return POI_CATEGORY_MAP[category] ?? POI_CATEGORY_MAP.other!;
+  return POI_CATEGORY_MAP[category as PoiCategory] ?? POI_CATEGORY_MAP.other;
+}
+
+/** The headline shown for a POI: its note if it has one, else the category label. */
+export function poiHeadline(poi: { category: string; note?: string | null }): string {
+  return poi.note && poi.note.trim().length > 0 ? poi.note : poiMeta(poi.category).label;
 }
 
 /** Truncate a note for space-constrained UI (e.g. the next-POI banner). */

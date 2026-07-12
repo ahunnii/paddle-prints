@@ -35,6 +35,19 @@ export default function AppLayout() {
         }}
       />
       <Tabs.Screen
+        name="map"
+        options={{
+          title: "Map",
+          tabBarIcon: ({ color, size, focused }) => (
+            <Ionicons
+              name={focused ? "map" : "map-outline"}
+              size={size}
+              color={color}
+            />
+          ),
+        }}
+      />
+      <Tabs.Screen
         name="record"
         options={{
           title: "Record",

@@ -1,0 +1,421 @@
+/**
+ * The community Map tab. Mirrors apps/web/src/components/map/community-map-client.tsx, adapted to
+ * MapLibre React Native:
+ *   - all saved route lines (routes.listGeoms) as a thin river-blue GeoJSON line layer; tapping one
+ *     opens a bottom card with its name + distance. (A route-detail screen doesn't exist on mobile
+ *     yet, so there's no "View" navigation -- flagged for the parity phase.)
+ *   - viewport POIs (pois.inBbox, keyed off the debounced region bbox) as emoji-pill ViewAnnotations;
+ *     tapping one opens a card with label / note / creator / date and a Delete action.
+ *   - live presence (presence.list, polled every 60s, self excluded) as name-pill ViewAnnotations.
+ *   - a floating "+" that enters a placement mode: a center crosshair + category chips + optional
+ *     note; Save reads the map center (mapRef.getCenter) and calls pois.create.
+ *
+ * MLRN v11 findings used here (verified in node_modules/@maplibre/maplibre-react-native/src):
+ *   - Region events: <Map onRegionDidChange> -> e.nativeEvent.bounds = [w, s, e, n] (wired in BaseMap).
+ *   - Hit-testing: <GeoJSONSource onPress> bubbles e.nativeEvent.features (PressEventWithFeatures) --
+ *     no manual queryRenderedFeatures needed for the route lines.
+ *   - Camera read: mapRef.current.getCenter() returns Promise<LngLat> ([lng, lat]) for placement save.
+ *   - ViewAnnotation: arbitrary RN child anchored to lngLat, with its own onPress (used for POIs).
+ */
+import { useMemo, useRef, useState } from "react";
+import {
+  Alert,
+  Pressable,
+  ScrollView,
+  Text,
+  TextInput,
+  View,
+  type NativeSyntheticEvent,
+} from "react-native";
+import { Ionicons } from "@expo/vector-icons";
+import {
+  GeoJSONSource,
+  Layer,
+  ViewAnnotation,
+  type MapRef,
+  type PressEventWithFeatures,
+} from "@maplibre/maplibre-react-native";
+import type { FeatureCollection, LineString } from "geojson";
+
+import { BaseMap, type Bbox } from "../../components/map/base-map";
+import { authClient } from "../../lib/auth-client";
+import { formatDateTime, formatDistanceMi } from "../../lib/format";
+import { POI_CATEGORIES, poiMeta, type PoiCategory } from "../../lib/pois";
+import { api, type RouterOutputs } from "../../lib/trpc";
+import { getRandomUUID } from "../../lib/uuid";
+
+type PoiItem = RouterOutputs["pois"]["inBbox"][number];
+
+const ROUTE_LINE_COLOR = "#4fb0cd"; // river-400
+
+interface SelectedRoute {
+  id: string;
+  name: string;
+  distanceM: number | null;
+}
+
+export default function MapScreen() {
+  const { data: session } = authClient.useSession();
+  const selfId = session?.user.id;
+
+  const mapRef = useRef<MapRef>(null);
+  const utils = api.useUtils();
+
+  const [bbox, setBbox] = useState<Bbox | null>(null);
+  const [selectedRoute, setSelectedRoute] = useState<SelectedRoute | null>(null);
+  const [selectedPoi, setSelectedPoi] = useState<PoiItem | null>(null);
+  const [placing, setPlacing] = useState(false);
+  const [placeCategory, setPlaceCategory] = useState<PoiCategory>("hazard");
+  const [placeNote, setPlaceNote] = useState("");
+
+  const routesQuery = api.routes.listGeoms.useQuery();
+  // routes.listGeoms carries geometry but not distance; routes.list carries the stored distance.
+  const routeMetaQuery = api.routes.list.useQuery();
+  const poisQuery = api.pois.inBbox.useQuery(
+    bbox
+      ? { west: bbox[0], south: bbox[1], east: bbox[2], north: bbox[3] }
+      : { west: 0, south: 0, east: 0, north: 0 },
+    { enabled: !!bbox },
+  );
+  const presenceQuery = api.presence.list.useQuery(undefined, {
+    refetchInterval: 60_000,
+    refetchOnWindowFocus: true,
+  });
+
+  const createPoi = api.pois.create.useMutation();
+  const deletePoi = api.pois.delete.useMutation();
+
+  const routeFeatures = useMemo<
+    FeatureCollection<LineString, { id: string; name: string }>
+  >(
+    () => ({
+      type: "FeatureCollection",
+      features: (routesQuery.data ?? []).map((r) => ({
+        type: "Feature",
+        properties: { id: r.id, name: r.name },
+        geometry: r.geom,
+      })),
+    }),
+    [routesQuery.data],
+  );
+
+  const distanceById = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const r of routeMetaQuery.data ?? []) m.set(r.id, r.distanceM);
+    return m;
+  }, [routeMetaQuery.data]);
+
+  const pois = poisQuery.data ?? [];
+  const presenceRows = (presenceQuery.data ?? []).filter(
+    (row) => row.userId !== selfId,
+  );
+
+  const closeSheets = () => {
+    setSelectedRoute(null);
+    setSelectedPoi(null);
+  };
+
+  const handleRoutePress = (
+    event: NativeSyntheticEvent<PressEventWithFeatures>,
+  ) => {
+    const feature = event.nativeEvent.features?.[0];
+    const id = feature?.properties?.id as string | undefined;
+    if (!id) return;
+    closeSheets();
+    setSelectedRoute({
+      id,
+      name: (feature?.properties?.name as string | undefined) ?? "Route",
+      distanceM: distanceById.get(id) ?? null,
+    });
+  };
+
+  const openPlacement = () => {
+    closeSheets();
+    setPlaceCategory("hazard");
+    setPlaceNote("");
+    setPlacing(true);
+  };
+
+  const handleSave = async () => {
+    const center = await mapRef.current?.getCenter();
+    if (!center) return;
+    const note = placeNote.trim();
+    createPoi.mutate(
+      {
+        id: getRandomUUID(),
+        category: placeCategory,
+        note: note.length > 0 ? note : undefined,
+        point: { lng: center[0], lat: center[1] },
+      },
+      {
+        onSuccess: () => {
+          void utils.pois.inBbox.invalidate();
+          setPlacing(false);
+          setPlaceNote("");
+        },
+      },
+    );
+  };
+
+  const handleDelete = (poi: PoiItem) => {
+    Alert.alert("Delete this spot?", "This removes it for everyone.", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Delete",
+        style: "destructive",
+        onPress: () =>
+          deletePoi.mutate(
+            { id: poi.id },
+            {
+              onSuccess: () => {
+                void utils.pois.inBbox.invalidate();
+                setSelectedPoi(null);
+              },
+            },
+          ),
+      },
+    ]);
+  };
+
+  const overlayHidden = placing || !!selectedRoute || !!selectedPoi;
+
+  return (
+    <View className="flex-1 bg-river-50">
+      <BaseMap mapRef={mapRef} onRegionChange={setBbox}>
+        {routeFeatures.features.length > 0 ? (
+          <GeoJSONSource
+            id="community-route-lines"
+            data={routeFeatures}
+            onPress={handleRoutePress}
+          >
+            <Layer
+              id="community-route-lines"
+              type="line"
+              paint={{
+                "line-color": ROUTE_LINE_COLOR,
+                "line-width": 2,
+                "line-opacity": 0.85,
+              }}
+              layout={{ "line-cap": "round", "line-join": "round" }}
+            />
+          </GeoJSONSource>
+        ) : null}
+
+        {pois.map((poi) => {
+          const meta = poiMeta(poi.category);
+          const lng = poi.geom.coordinates[0]!;
+          const lat = poi.geom.coordinates[1]!;
+          return (
+            <ViewAnnotation
+              key={poi.id}
+              id={`poi-${poi.id}`}
+              lngLat={[lng, lat]}
+              anchor="center"
+              onPress={() => {
+                closeSheets();
+                setSelectedPoi(poi);
+              }}
+            >
+              <View
+                className="h-9 w-9 items-center justify-center rounded-full border-2 bg-white"
+                style={{ borderColor: meta.color }}
+              >
+                <Text style={{ fontSize: 16 }}>{meta.emoji}</Text>
+              </View>
+            </ViewAnnotation>
+          );
+        })}
+
+        {presenceRows.map((row) => {
+          const lng = row.geom.coordinates[0]!;
+          const lat = row.geom.coordinates[1]!;
+          return (
+            <ViewAnnotation
+              key={row.userId}
+              id={`presence-${row.userId}`}
+              lngLat={[lng, lat]}
+              anchor="center"
+            >
+              <View className="flex-row items-center gap-1 rounded-full border border-river-400 bg-white px-2 py-1">
+                <Text style={{ fontSize: 13 }}>🏄</Text>
+                <Text
+                  className="text-xs font-bold text-river-800"
+                  numberOfLines={1}
+                >
+                  {row.name}
+                </Text>
+              </View>
+            </ViewAnnotation>
+          );
+        })}
+      </BaseMap>
+
+      {/* Placement crosshair, centered over the map. */}
+      {placing ? (
+        <View
+          pointerEvents="none"
+          className="absolute inset-0 items-center justify-center"
+        >
+          <View className="h-11 w-11 items-center justify-center rounded-full border-2 border-sunset-500 bg-white/70">
+            <Ionicons name="add" size={26} color="#f97316" />
+          </View>
+        </View>
+      ) : null}
+
+      {/* Route card */}
+      {selectedRoute ? (
+        <View
+          className="absolute inset-x-4 bottom-6 rounded-2xl bg-white p-4 shadow-lg"
+          style={{ elevation: 6 }}
+        >
+          <View className="flex-row items-start justify-between gap-2">
+            <View className="flex-1">
+              <Text className="text-base font-bold text-river-950">
+                {selectedRoute.name}
+              </Text>
+              {selectedRoute.distanceM != null ? (
+                <Text className="mt-0.5 text-sm text-river-600">
+                  {formatDistanceMi(selectedRoute.distanceM)}
+                </Text>
+              ) : null}
+              <Text className="mt-1 text-xs text-river-400">
+                Route details coming soon
+              </Text>
+            </View>
+            <Pressable
+              onPress={() => setSelectedRoute(null)}
+              hitSlop={8}
+              className="p-1"
+            >
+              <Ionicons name="close" size={20} color="#4fb0cd" />
+            </Pressable>
+          </View>
+        </View>
+      ) : null}
+
+      {/* POI card */}
+      {selectedPoi ? (
+        <View
+          className="absolute inset-x-4 bottom-6 rounded-2xl bg-white p-4 shadow-lg"
+          style={{ elevation: 6 }}
+        >
+          <View className="flex-row items-start justify-between gap-2">
+            <View className="flex-1">
+              <Text className="text-base font-bold text-river-950">
+                {poiMeta(selectedPoi.category).emoji}{" "}
+                {poiMeta(selectedPoi.category).label}
+              </Text>
+              {selectedPoi.note ? (
+                <Text className="mt-1 text-sm text-river-700">
+                  {selectedPoi.note}
+                </Text>
+              ) : null}
+              <Text className="mt-1 text-xs text-river-400">
+                {selectedPoi.creatorName} ·{" "}
+                {formatDateTime(new Date(selectedPoi.createdAt))}
+              </Text>
+            </View>
+            <Pressable
+              onPress={() => setSelectedPoi(null)}
+              hitSlop={8}
+              className="p-1"
+            >
+              <Ionicons name="close" size={20} color="#4fb0cd" />
+            </Pressable>
+          </View>
+          <Pressable
+            onPress={() => handleDelete(selectedPoi)}
+            className="mt-3 min-h-11 items-center justify-center rounded-xl border border-red-200 bg-red-50"
+          >
+            <Text className="text-sm font-semibold text-red-600">Delete</Text>
+          </Pressable>
+        </View>
+      ) : null}
+
+      {/* Placement panel */}
+      {placing ? (
+        <View
+          className="absolute inset-x-4 bottom-6 rounded-2xl bg-white p-4 shadow-lg"
+          style={{ elevation: 6 }}
+        >
+          <Text className="text-base font-bold text-river-950">Add a spot</Text>
+          <Text className="mt-0.5 text-xs text-river-500">
+            Center the crosshair on the spot, pick a type, then save.
+          </Text>
+
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            className="mt-3 -mx-1"
+            contentContainerClassName="gap-2 px-1"
+          >
+            {POI_CATEGORIES.map((cat) => {
+              const active = cat.category === placeCategory;
+              return (
+                <Pressable
+                  key={cat.category}
+                  onPress={() => setPlaceCategory(cat.category)}
+                  className={`flex-row items-center gap-1 rounded-full border px-3 py-2 ${
+                    active
+                      ? "border-river-400 bg-river-100"
+                      : "border-river-200 bg-white"
+                  }`}
+                >
+                  <Text style={{ fontSize: 14 }}>{cat.emoji}</Text>
+                  <Text
+                    className={`text-xs font-semibold ${
+                      active ? "text-river-800" : "text-river-500"
+                    }`}
+                  >
+                    {cat.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+
+          <TextInput
+            value={placeNote}
+            onChangeText={setPlaceNote}
+            placeholder="Add a note (optional)"
+            placeholderTextColor="#88cde2"
+            maxLength={280}
+            className="mt-3 rounded-xl border border-river-200 bg-river-50 px-3 py-2.5 text-river-900"
+          />
+
+          <View className="mt-3 flex-row gap-2">
+            <Pressable
+              onPress={() => setPlacing(false)}
+              className="min-h-11 flex-1 items-center justify-center rounded-xl border border-river-200 bg-white"
+            >
+              <Text className="text-sm font-semibold text-river-600">
+                Cancel
+              </Text>
+            </Pressable>
+            <Pressable
+              onPress={() => void handleSave()}
+              disabled={createPoi.isPending}
+              className="min-h-11 flex-1 items-center justify-center rounded-xl bg-sunset-500"
+              style={{ opacity: createPoi.isPending ? 0.6 : 1 }}
+            >
+              <Text className="text-sm font-extrabold text-white">
+                {createPoi.isPending ? "Saving…" : "Save spot"}
+              </Text>
+            </Pressable>
+          </View>
+        </View>
+      ) : null}
+
+      {/* Floating add button */}
+      {!overlayHidden ? (
+        <Pressable
+          onPress={openPlacement}
+          className="absolute bottom-6 right-4 h-14 w-14 items-center justify-center rounded-full bg-sunset-500 shadow-lg"
+          style={{ elevation: 6 }}
+        >
+          <Ionicons name="add" size={30} color="white" />
+        </Pressable>
+      ) : null}
+    </View>
+  );
+}
