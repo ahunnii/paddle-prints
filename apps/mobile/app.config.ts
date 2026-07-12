@@ -35,6 +35,18 @@ const config: ExpoConfig = {
       // Dev only: allows plain-http requests to the LAN dev server. Must be gated off before any release build.
       { android: { usesCleartextTraffic: true } },
     ],
+    "expo-task-manager",
+    [
+      "expo-location",
+      {
+        locationWhenInUsePermission:
+          "Paddle Prints uses your location to record your paddle track and show progress along the route.",
+        locationAlwaysAndWhenInUsePermission:
+          "Paddle Prints uses your location to keep recording your paddle while the app is in the background.",
+        isIosBackgroundLocationEnabled: true,
+        isAndroidForegroundServiceEnabled: true,
+      },
+    ],
   ],
   experiments: { typedRoutes: true },
 };
