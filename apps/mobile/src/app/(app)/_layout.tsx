@@ -35,6 +35,19 @@ export default function AppLayout() {
         }}
       />
       <Tabs.Screen
+        name="record"
+        options={{
+          title: "Record",
+          tabBarIcon: ({ color, size, focused }) => (
+            <Ionicons
+              name={focused ? "radio-button-on" : "radio-button-on-outline"}
+              size={size}
+              color={color}
+            />
+          ),
+        }}
+      />
+      <Tabs.Screen
         name="me"
         options={{
           title: "Me",

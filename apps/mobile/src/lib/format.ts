@@ -34,3 +34,23 @@ export function formatDateTime(date: Date): string {
     minute: "2-digit",
   }).format(date);
 }
+
+/** e.g. "1:23:45" (h:mm:ss) once past an hour, else "23:45" (m:ss). Used for the live-recording
+ * elapsed/moving clocks (record.tsx), which want a stopwatch look rather than formatDuration's
+ * "1h 23m" unit-label style. */
+export function formatClock(totalS: number): string {
+  const s = Math.max(0, Math.floor(totalS));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return h > 0 ? `${h}:${pad(m)}:${pad(sec)}` : `${m}:${pad(sec)}`;
+}
+
+/** e.g. "3:41 PM" -- used for the live ETA-arrival clock (record.tsx). */
+export function formatTimeOfDay(date: Date): string {
+  return new Intl.DateTimeFormat("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(date);
+}
