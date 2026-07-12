@@ -1,10 +1,15 @@
 /**
- * The Record tab: a stats-first recording UI (no maps yet -- Phase 3) built on top of the recorder
- * engine in ../../lib/recorder/use-recorder.ts. Three phases driven entirely by `machine.status`:
+ * The Record tab: a stats-first recording UI, with a nav map (../../components/map/nav-map.tsx) on top
+ * of the stat tiles during the live phase, built on top of the recorder engine in
+ * ../../lib/recorder/use-recorder.ts. Three phases driven entirely by `machine.status`:
  *   - idle, no live checkpoint            -> SetupScreen (route/free-paddle picker + Start)
  *   - idle, a live checkpoint exists       -> ResumePrompt (offered before any route picking)
- *   - acquiring/recording/*Paused          -> LiveScreen (big stat tiles + controls)
+ *   - acquiring/recording/*Paused          -> LiveScreen (nav map + compact stat tiles + controls)
  *   - finished                            -> FinishedScreen (summary + note + Save/Discard)
+ *
+ * The nav map is mounted only in LiveScreen -- SetupScreen and FinishedScreen are separate components
+ * that never render it, so its native map surface is torn down the instant recording stops or the
+ * paddle isn't started yet.
  *
  * Mirrors apps/web/src/components/record/record-client.tsx's behavior (resume gating, buildInput
  * construction, status chips, next-POI banner) but uses the app's light river/sunset visual language
@@ -27,13 +32,14 @@ import { nextPoiAhead, type CorridorPoi } from "@paddle-prints/recorder-core/nex
 import { simplifyTrack } from "@paddle-prints/recorder-core/simplify";
 import type { TripType } from "@paddle-prints/recorder-core/types";
 
+import { NavMap, type NavPoi } from "../../components/map/nav-map";
 import {
   formatClock,
   formatDistanceMi,
   formatSpeedMph,
   formatTimeOfDay,
 } from "../../lib/format";
-import { poiMeta, truncateNote } from "../../lib/pois";
+import { NAV_POI_CATEGORIES, poiMeta, truncateNote } from "../../lib/pois";
 import type { Checkpoint } from "../../lib/recorder/checkpoint";
 import { ensureRecorderPermissions } from "../../lib/recorder/permissions";
 import { readLiveCheckpoint, useRecorder } from "../../lib/recorder/use-recorder";
@@ -455,6 +461,7 @@ function LiveScreen() {
   const wakeLockOk = useRecorder((s) => s.wakeLockOk);
   const note = useRecorder((s) => s.note);
   const setNote = useRecorder((s) => s.setNote);
+  const headingDeg = useRecorder((s) => s.headingDeg);
   const pause = useRecorder((s) => s.pause);
   const resume = useRecorder((s) => s.resume);
   const finish = useRecorder((s) => s.finish);
@@ -485,6 +492,27 @@ function LiveScreen() {
     return nextPoiAhead(pois, routeQuery.data.shape, routeModel.totalM, progress.progressM);
   }, [routeModel, progress, routeQuery.data]);
 
+  // Nav map inputs: last accepted fix (the live puck), the route line, the on-route snapped-progress
+  // dot, and safety-relevant corridor POIs. Kept mounted only in this LiveScreen (unmounted entirely
+  // in setup/finished) so the map's native surface isn't paid for outside the live phase.
+  const lastPoint = machine.track[machine.track.length - 1];
+  const livePos = lastPoint ? { lng: lastPoint.lng, lat: lastPoint.lat } : null;
+  const routeCoords = routeQuery.data?.geom.coordinates.map(
+    (c) => [c[0], c[1]] as [number, number],
+  ) ?? null;
+  const snappedPos = progress && !progress.offRoute ? progress.snapped : null;
+  const navPois = useMemo<NavPoi[]>(() => {
+    if (!routeQuery.data) return [];
+    return routeQuery.data.pois
+      .filter((p) => (NAV_POI_CATEGORIES as string[]).includes(p.category))
+      .map((p) => ({
+        id: p.id,
+        category: p.category,
+        lng: p.geom.coordinates[0]!,
+        lat: p.geom.coordinates[1]!,
+      }));
+  }, [routeQuery.data]);
+
   const avgMph = machine.movingS > 0 ? machine.distanceM / machine.movingS : 0;
   const progressPct =
     routeModel && progress
@@ -508,7 +536,18 @@ function LiveScreen() {
 
   return (
     <View className="flex-1 bg-river-50">
+      <View className="h-[45%]">
+        <NavMap
+          routeCoords={routeCoords}
+          livePos={livePos}
+          headingDeg={headingDeg}
+          snapped={snappedPos}
+          pois={navPois}
+        />
+      </View>
+
       <ScrollView
+        className="flex-1"
         contentContainerClassName="gap-4 p-4 pb-2"
         keyboardShouldPersistTaps="handled"
       >
@@ -536,19 +575,24 @@ function LiveScreen() {
           {!wakeLockOk ? <Chip label="Screen may sleep" tone="danger" /> : null}
         </View>
 
-        <View className="rounded-3xl bg-white p-5 shadow-sm">
-          <View className="flex-row flex-wrap gap-x-4 gap-y-4">
-            <Stat label="Distance" value={formatDistanceMi(machine.distanceM)} big />
+        <View className="rounded-2xl bg-white p-4 shadow-sm">
+          <View className="flex-row flex-wrap gap-x-4 gap-y-3">
+            <Stat label="Distance" value={formatDistanceMi(machine.distanceM)} big compact />
             {progress ? (
-              <Stat label="Remaining" value={formatDistanceMi(progress.remainingM)} big />
+              <Stat
+                label="Remaining"
+                value={formatDistanceMi(progress.remainingM)}
+                big
+                compact
+              />
             ) : null}
-            <Stat label="Elapsed" value={formatClock(machine.elapsedS)} />
-            <Stat label="Moving" value={formatClock(machine.movingS)} />
-            <Stat label="Avg speed" value={formatSpeedMph(avgMph)} />
+            <Stat label="Elapsed" value={formatClock(machine.elapsedS)} compact />
+            <Stat label="Moving" value={formatClock(machine.movingS)} compact />
+            <Stat label="Avg speed" value={formatSpeedMph(avgMph)} compact />
             {progressPct != null ? (
-              <Stat label="Progress" value={`${Math.round(progressPct)}%`} />
+              <Stat label="Progress" value={`${Math.round(progressPct)}%`} compact />
             ) : null}
-            {etaClock ? <Stat label="ETA" value={etaClock} /> : null}
+            {etaClock ? <Stat label="ETA" value={etaClock} compact /> : null}
           </View>
         </View>
 
@@ -740,7 +784,18 @@ function FinishedScreen({ freeTripType }: { freeTripType: TripType }) {
 
 // --- small shared bits --------------------------------------------------------
 
-function Stat({ label, value, big }: { label: string; value: string; big?: boolean }) {
+function Stat({
+  label,
+  value,
+  big,
+  compact,
+}: {
+  label: string;
+  value: string;
+  big?: boolean;
+  /** Smaller type scale -- used in the live phase, where the nav map above eats vertical space. */
+  compact?: boolean;
+}) {
   return (
     <View className="min-w-[45%] flex-1">
       <Text className="text-xs font-bold uppercase tracking-widest text-river-400">
@@ -748,7 +803,7 @@ function Stat({ label, value, big }: { label: string; value: string; big?: boole
       </Text>
       <Text
         className={`font-extrabold tabular-nums text-river-900 ${
-          big ? "text-4xl" : "text-2xl"
+          big ? (compact ? "text-3xl" : "text-4xl") : compact ? "text-xl" : "text-2xl"
         }`}
       >
         {value}

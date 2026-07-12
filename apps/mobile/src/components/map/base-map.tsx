@@ -11,6 +11,21 @@
  *   - attribution / attributionPosition              -- the custom string comes from the style's
  *                                                       source `attribution` field (set in getMapStyle).
  *   - <Camera initialViewState maxBounds minZoom>    -- initial framing + pan clamp.
+ *   - <Camera ref>.easeTo/jumpTo/flyTo/fitBounds/zoomTo -- imperative CameraRef methods (all via a
+ *                                                       shared native `setStop`); `fitBounds(bounds,
+ *                                                       { padding, duration })` takes the same flat
+ *                                                       [w,s,e,n] tuple as `Bbox` below.
+ *   - onRegionWillChange(e)                          -- fires before a region change starts;
+ *                                                       `e.nativeEvent.userInteraction` is true only
+ *                                                       for a real pan/pinch/rotate gesture, false for
+ *                                                       a programmatic camera move -- the only
+ *                                                       supported way to detect "the user grabbed the
+ *                                                       map" (there is no separate onDrag event).
+ *
+ * `onStyleLoaded` is this file's own addition (not an MLRN API): style loading is an async fetch, so
+ * `cameraRef` isn't attached to anything until the style resolves and <Camera> actually mounts. A
+ * caller that wants to fitBounds() right after mount (the paddle-detail screen) needs to know when
+ * that's safe to do.
  */
 import {
   useEffect,
@@ -19,7 +34,7 @@ import {
   type ReactNode,
   type Ref,
 } from "react";
-import { ActivityIndicator, Text, View } from "react-native";
+import { ActivityIndicator, Pressable, Text, View } from "react-native";
 import {
   Camera,
   Map,
@@ -52,8 +67,20 @@ export interface BaseMapProps {
   zoom?: number;
   /** Debounced (300ms) viewport bbox, fired after the region settles. */
   onRegionChange?: (bbox: Bbox) => void;
+  /**
+   * Raw passthrough of the Map's onRegionWillChange, undebounced. `event.nativeEvent.userInteraction`
+   * distinguishes a real pan/pinch gesture from a programmatic camera move -- used by the nav map to
+   * break follow mode only on genuine user gestures.
+   */
+  onRegionWillChange?: MapProps["onRegionWillChange"];
   /** Map press handler (bubbles feature presses from child sources). */
   onPress?: MapProps["onPress"];
+  /**
+   * Fires once the style JSON has loaded and the <Camera> (and its `cameraRef`) has actually mounted.
+   * Style loading is an async fetch, so a caller that wants to call `cameraRef.current.fitBounds(...)`
+   * right after mount must wait for this -- calling it before the ref is attached is a silent no-op.
+   */
+  onStyleLoaded?: () => void;
   /** Ref to the underlying Map (for getCenter / queryRenderedFeatures). */
   mapRef?: Ref<MapRef>;
   /** Ref to the Camera (for programmatic easeTo / fitBounds). */
@@ -67,13 +94,18 @@ export function BaseMap({
   center = MICHIGAN_CENTER,
   zoom = MICHIGAN_ZOOM,
   onRegionChange,
+  onRegionWillChange,
   onPress,
+  onStyleLoaded,
   mapRef,
   cameraRef,
   children,
 }: BaseMapProps) {
   const [style, setStyle] = useState<StyleSpecification | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Tab screens stay mounted, so a failed style load would otherwise be permanent; bumping this
+  // re-runs the load effect (the retry button below).
+  const [loadAttempt, setLoadAttempt] = useState(0);
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const onRegionChangeRef = useRef(onRegionChange);
@@ -81,6 +113,7 @@ export function BaseMap({
 
   useEffect(() => {
     let cancelled = false;
+    setError(null);
     getMapStyle(variant)
       .then((s) => {
         if (!cancelled) setStyle(s);
@@ -93,7 +126,7 @@ export function BaseMap({
     return () => {
       cancelled = true;
     };
-  }, [variant]);
+  }, [variant, loadAttempt]);
 
   useEffect(
     () => () => {
@@ -101,6 +134,11 @@ export function BaseMap({
     },
     [],
   );
+
+  useEffect(() => {
+    if (style) onStyleLoaded?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [style]);
 
   const handleRegionDidChange = (
     event: NativeSyntheticEvent<ViewStateChangeEvent>,
@@ -115,8 +153,14 @@ export function BaseMap({
 
   if (error) {
     return (
-      <View className="flex-1 items-center justify-center bg-river-100 px-6">
+      <View className="flex-1 items-center justify-center gap-4 bg-river-100 px-6">
         <Text className="text-center text-river-700">{error}</Text>
+        <Pressable
+          onPress={() => setLoadAttempt((n) => n + 1)}
+          className="rounded-full bg-sunset-500 px-5 py-2.5"
+        >
+          <Text className="font-semibold text-white">Try again</Text>
+        </Pressable>
       </View>
     );
   }
@@ -135,6 +179,7 @@ export function BaseMap({
       mapStyle={style}
       style={{ flex: 1 }}
       onRegionDidChange={handleRegionDidChange}
+      onRegionWillChange={onRegionWillChange}
       onPress={onPress}
       logo={false}
       attribution

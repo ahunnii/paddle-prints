@@ -7,6 +7,7 @@ import {
   Text,
   View,
 } from "react-native";
+import { useRouter } from "expo-router";
 
 import {
   formatDateTime,
@@ -23,8 +24,12 @@ function tripTypeLabel(tripType: FeedItem["tripType"]) {
 }
 
 function FeedCard({ item }: { item: FeedItem }) {
+  const router = useRouter();
   return (
-    <View className="rounded-2xl bg-white p-4 shadow-sm">
+    <Pressable
+      onPress={() => router.push(`/paddles/${item.id}`)}
+      className="rounded-2xl bg-white p-4 shadow-sm active:opacity-80"
+    >
       <View className="flex-row items-center justify-between gap-2">
         <Text
           className="flex-1 font-semibold text-river-900"
@@ -53,7 +58,7 @@ function FeedCard({ item }: { item: FeedItem }) {
       <Text className="mt-1 text-xs text-river-400">
         {formatDateTime(item.startedAt)}
       </Text>
-    </View>
+    </Pressable>
   );
 }
 

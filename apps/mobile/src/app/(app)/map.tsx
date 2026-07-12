@@ -38,6 +38,7 @@ import {
 import type { FeatureCollection, LineString } from "geojson";
 
 import { BaseMap, type Bbox } from "../../components/map/base-map";
+import { PoiPill } from "../../components/map/poi-pill";
 import { authClient } from "../../lib/auth-client";
 import { formatDateTime, formatDistanceMi } from "../../lib/format";
 import { POI_CATEGORIES, poiMeta, type PoiCategory } from "../../lib/pois";
@@ -216,12 +217,7 @@ export default function MapScreen() {
                 setSelectedPoi(poi);
               }}
             >
-              <View
-                className="h-9 w-9 items-center justify-center rounded-full border-2 bg-white"
-                style={{ borderColor: meta.color }}
-              >
-                <Text style={{ fontSize: 16 }}>{meta.emoji}</Text>
-              </View>
+              <PoiPill emoji={meta.emoji} color={meta.color} />
             </ViewAnnotation>
           );
         })}

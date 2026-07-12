@@ -73,6 +73,14 @@ export default function AppLayout() {
           ),
         }}
       />
+      {/* Paddle detail is reachable (feed cards push to it) but isn't one of the four primary tabs --
+          `href: null` keeps expo-router's Tabs navigator from rendering it as a fifth tab-bar item
+          while still letting router.push("/paddles/[id]") resolve to it. The screen renders its own
+          header (back button + title), so the Tabs default header is turned off here too. */}
+      <Tabs.Screen
+        name="paddles/[id]"
+        options={{ href: null, headerShown: false }}
+      />
     </Tabs>
   );
 }
