@@ -164,17 +164,24 @@ export default function FeedScreen() {
   }
 
   if (feed.isError) {
+    // Queued-offline paddles must stay visible even when the feed itself can't load — otherwise a
+    // paddler with no signal saves a trip and then can't see it anywhere on this tab.
     return (
-      <View className="flex-1 items-center justify-center gap-3 bg-river-50 px-6">
-        <Text className="text-center text-river-700">
-          Couldn&apos;t load the feed. {feed.error.message}
-        </Text>
-        <Pressable
-          onPress={() => void feed.refetch()}
-          className="rounded-full bg-sunset-500 px-5 py-2.5"
-        >
-          <Text className="font-semibold text-white">Retry</Text>
-        </Pressable>
+      <View className="flex-1 bg-river-50">
+        {visiblePending.length > 0 ? (
+          <View className="gap-3 p-4 pb-0">{pendingHeader}</View>
+        ) : null}
+        <View className="flex-1 items-center justify-center gap-3 px-6">
+          <Text className="text-center text-river-700">
+            Couldn&apos;t load the feed. {feed.error.message}
+          </Text>
+          <Pressable
+            onPress={() => void feed.refetch()}
+            className="rounded-full bg-sunset-500 px-5 py-2.5"
+          >
+            <Text className="font-semibold text-white">Retry</Text>
+          </Pressable>
+        </View>
       </View>
     );
   }

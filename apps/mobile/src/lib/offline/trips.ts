@@ -23,10 +23,13 @@ import {
   Paths,
   type DownloadProgress,
 } from "expo-file-system";
+import superjson from "superjson";
 
 import { env } from "../../env";
 import { authClient } from "../auth-client";
 import { ensureOfflineMapAssets } from "../map/offline-assets";
+import { trpcVanilla } from "../trpc-vanilla";
+import type { RouterOutputs } from "../trpc";
 import { getOfflineDb } from "./storage";
 
 export type { DownloadProgress } from "expo-file-system";
@@ -36,6 +39,24 @@ export interface OfflineTrip {
   routeId: string;
   bytes: number;
   downloadedAt: number;
+}
+
+/**
+ * The route data captured alongside a downloaded trip's tiles, so a downloaded route can be RECORDED
+ * fully offline. The .pmtiles archive only carries the map imagery; the recorder still needs the
+ * route geometry, shape, type, corridor POIs, and the user's historical pace — all of which live
+ * only on the server via `routes.byId` + `routes.etaForUser`. We snapshot both at download time
+ * (while provably online) and replay them from disk when the network is unreachable. This is the
+ * mobile analogue of web storing `StoredRoute` + `StoredPoi[]` up front in
+ * apps/web/src/lib/offline/download-trip.ts.
+ *
+ * `route` is the raw `routes.byId` output and `eta` the raw `routes.etaForUser` output — both carry
+ * `Date`s, which is why the snapshot is (de)serialized with superjson, not JSON.
+ */
+export interface RouteSnapshot {
+  route: RouterOutputs["routes"]["byId"];
+  eta: RouterOutputs["routes"]["etaForUser"];
+  snapshotAt: number;
 }
 
 interface OfflineTripRow {
@@ -52,6 +73,12 @@ function tripsDir(): Directory {
 /** The `File` handle for a route's archive (may or may not exist on disk). */
 function tripFile(routeId: string): File {
   return new File(tripsDir(), `${routeId}.pmtiles`);
+}
+
+/** The `File` handle for a route's snapshot JSON (may or may not exist on disk). Sits next to the
+ * archive under `documentDirectory/trips/` so the two are managed as a unit. */
+function routeSnapshotFile(routeId: string): File {
+  return new File(tripsDir(), `${routeId}.route.json`);
 }
 
 /**
@@ -79,6 +106,23 @@ export async function downloadTrip(
   // the trip downloaded, so "downloaded" always means "renders fully offline".
   await ensureOfflineMapAssets();
 
+  // Snapshot the route + the user's personal pace while we're provably online (we just streamed the
+  // tiles), so recording this route works with no signal — the record screen otherwise fetches
+  // `routes.byId` + `routes.etaForUser` over the network to configure the recorder. Written BEFORE
+  // the index row below so a "downloaded" trip (an `offline_trips` row) always implies its snapshot
+  // is on disk; if either fetch fails the whole download rejects (mirroring web's partial-download
+  // rollback) and no row is written, leaving the trip re-downloadable.
+  const [routeData, etaData] = await Promise.all([
+    trpcVanilla.routes.byId.query({ id: routeId }),
+    trpcVanilla.routes.etaForUser.query({ routeId }),
+  ]);
+  const snapshot: RouteSnapshot = {
+    route: routeData,
+    eta: etaData,
+    snapshotAt: Date.now(),
+  };
+  routeSnapshotFile(routeId).write(superjson.stringify(snapshot));
+
   const downloadedAt = Date.now();
   const bytes = file.size;
   getOfflineDb().runSync(
@@ -95,9 +139,29 @@ export async function downloadTrip(
 export function deleteTrip(routeId: string): void {
   const file = tripFile(routeId);
   if (file.exists) file.delete();
+  const snapshot = routeSnapshotFile(routeId);
+  if (snapshot.exists) snapshot.delete();
   getOfflineDb().runSync(`DELETE FROM offline_trips WHERE route_id = $id;`, {
     $id: routeId,
   });
+}
+
+/**
+ * The route snapshot captured for a downloaded trip, or null if there is none (never downloaded, a
+ * trip downloaded before snapshots existed, or a corrupt/unreadable file). Callers fall back to their
+ * normal network-error handling on null — no migration is needed; users re-download to get a
+ * snapshot. Parsed with superjson to revive the `Date`s in the byId/etaForUser payloads.
+ */
+export async function getRouteSnapshot(
+  routeId: string,
+): Promise<RouteSnapshot | null> {
+  const file = routeSnapshotFile(routeId);
+  if (!file.exists) return null;
+  try {
+    return superjson.parse<RouteSnapshot>(await file.text());
+  } catch {
+    return null;
+  }
 }
 
 /** Every downloaded trip, newest first — for the routes list's "Downloaded" chips. */

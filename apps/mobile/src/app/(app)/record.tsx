@@ -47,8 +47,120 @@ import { readLiveCheckpoint, useRecorder } from "../../lib/recorder/use-recorder
 import { trpcVanilla } from "../../lib/trpc-vanilla";
 import { api, type RouterOutputs } from "../../lib/trpc";
 import { queuePaddle, syncQueue } from "../../lib/offline/sync";
+import {
+  getRouteSnapshot,
+  type RouteSnapshot,
+} from "../../lib/offline/trips";
 import { useOfflineTripPath } from "../../lib/offline/use-offline-trip-path";
 import { getRandomUUID } from "../../lib/uuid";
+
+/** The `routes.byId` output — the shape both the network path and the offline snapshot resolve to. */
+type RecordingRoute = RouterOutputs["routes"]["byId"];
+
+/**
+ * Resolve the route a paddle is being recorded against, from the network when reachable and from the
+ * downloaded snapshot (see lib/offline/trips) when it isn't. Wraps the same two queries the record
+ * screen has always used (`routes.byId` for geometry/POIs, `routes.etaForUser` for pace) so that when
+ * the network works the behavior is byte-identical — the snapshot is only ever read after BOTH
+ * queries have errored, and never touched on the success path. Returns a unified view the callers
+ * configure the recorder / render the nav map from without caring which source it came from.
+ */
+function useRouteForRecording(routeId: string | null | undefined): {
+  route: RecordingRoute | null;
+  etaSpeedMps: number | null;
+  source: "network" | "snapshot";
+  isPending: boolean;
+  isError: boolean;
+} {
+  const enabled = !!routeId;
+  const byIdQuery = api.routes.byId.useQuery(
+    { id: routeId ?? "" },
+    { enabled },
+  );
+  const etaQuery = api.routes.etaForUser.useQuery(
+    { routeId: routeId ?? "" },
+    { enabled },
+  );
+
+  const networkOk = byIdQuery.isSuccess && etaQuery.isSuccess;
+  const networkFailed = byIdQuery.isError || etaQuery.isError;
+
+  // The snapshot read, keyed by routeId so a stale result from a previously-selected route can never
+  // leak through when the selection changes (the key mismatch invalidates it until the effect re-runs).
+  const [snapState, setSnapState] = useState<{
+    routeId: string;
+    snapshot: RouteSnapshot | null;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!routeId || !networkFailed) return;
+    if (snapState?.routeId === routeId) return; // already resolved for this route
+    let cancelled = false;
+    void getRouteSnapshot(routeId).then((snapshot) => {
+      if (!cancelled) setSnapState({ routeId, snapshot });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [routeId, networkFailed, snapState]);
+
+  if (!enabled) {
+    return {
+      route: null,
+      etaSpeedMps: null,
+      source: "network",
+      isPending: false,
+      isError: false,
+    };
+  }
+  if (networkOk) {
+    return {
+      route: byIdQuery.data,
+      etaSpeedMps: etaQuery.data.speedMps,
+      source: "network",
+      isPending: false,
+      isError: false,
+    };
+  }
+  if (networkFailed) {
+    const tried = snapState?.routeId === routeId;
+    if (!tried) {
+      // network has failed but the snapshot read is still in flight
+      return {
+        route: null,
+        etaSpeedMps: null,
+        source: "network",
+        isPending: true,
+        isError: false,
+      };
+    }
+    if (snapState.snapshot) {
+      return {
+        route: snapState.snapshot.route,
+        etaSpeedMps: snapState.snapshot.eta.speedMps,
+        source: "snapshot",
+        isPending: false,
+        isError: false,
+      };
+    }
+    // both the network AND the snapshot failed — surface the normal error state
+    return {
+      route: null,
+      etaSpeedMps: null,
+      source: "network",
+      isPending: false,
+      isError: true,
+    };
+  }
+  // both queries still loading
+  return {
+    route: null,
+    etaSpeedMps: null,
+    source: "network",
+    isPending: true,
+    isError: false,
+  };
+}
 
 function permissionMessage(
   reason: "denied" | "needsBackground" | "servicesDisabled",
@@ -116,8 +228,18 @@ function ResumePrompt({
     try {
       // A checkpoint carries routeId/tripType but NOT the route's geometry, so a routed checkpoint
       // needs its route re-fetched and re-configured before restoreFrom can rebuild progress/ETA.
+      // Crash-recovery is data-safety critical and can happen mid-offline-paddle: if the network is
+      // unreachable, fall back to the downloaded route snapshot (lib/offline/trips) and only surface
+      // the error when BOTH the fetch and the snapshot are unavailable.
       if (checkpoint.routeId) {
-        const route = await trpcVanilla.routes.byId.query({ id: checkpoint.routeId });
+        let route: RecordingRoute;
+        try {
+          route = await trpcVanilla.routes.byId.query({ id: checkpoint.routeId });
+        } catch (netErr) {
+          const snapshot = await getRouteSnapshot(checkpoint.routeId);
+          if (!snapshot) throw netErr;
+          route = snapshot.route;
+        }
         configure({
           routeId: route.id,
           tripType: route.type,
@@ -223,37 +345,33 @@ function SetupScreen({
   });
 
   const selectedRouteId = selection?.type === "route" ? selection.id : undefined;
-  const byIdQuery = api.routes.byId.useQuery(
-    { id: selectedRouteId ?? "" },
-    { enabled: !!selectedRouteId },
-  );
-  const etaQuery = api.routes.etaForUser.useQuery(
-    { routeId: selectedRouteId ?? "" },
-    { enabled: !!selectedRouteId },
-  );
+  // Network-first with a downloaded-snapshot fallback, so a downloaded route can be recorded offline.
+  const routeForRecording = useRouteForRecording(selectedRouteId);
+  const { route: resolvedRoute, etaSpeedMps } = routeForRecording;
 
   // Configure the recorder as soon as we know enough: once for a free paddle (the toggle is
   // deliberately NOT a dependency here -- it's read straight from `freeTripType` at save time
   // instead, same as web's buildInput -- so flipping it doesn't reset the store's `note`), or once
-  // the route + personal ETA have both loaded for a picked route.
+  // the route + personal ETA have both resolved (from the network, or the snapshot offline).
   useEffect(() => {
     if (!selection) return;
     if (selection.type === "free") {
       configure({ routeId: null, tripType: "river", routeCoords: null, routeShape: "one_way" });
       return;
     }
-    if (byIdQuery.data && etaQuery.data) {
-      const r = byIdQuery.data;
+    if (resolvedRoute && etaSpeedMps != null) {
       configure({
-        routeId: r.id,
-        tripType: r.type,
-        routeCoords: r.geom.coordinates.map((c) => [c[0], c[1]] as [number, number]),
-        routeShape: r.shape,
-        historicalSpeedMps: etaQuery.data.speedMps,
+        routeId: resolvedRoute.id,
+        tripType: resolvedRoute.type,
+        routeCoords: resolvedRoute.geom.coordinates.map(
+          (c) => [c[0], c[1]] as [number, number],
+        ),
+        routeShape: resolvedRoute.shape,
+        historicalSpeedMps: etaSpeedMps,
       });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selection, byIdQuery.data, etaQuery.data]);
+  }, [selection, resolvedRoute, etaSpeedMps]);
 
   async function handleStart() {
     setPermError(null);
@@ -283,9 +401,11 @@ function SetupScreen({
   }
 
   const loadingRoute =
-    selection.type === "route" && (byIdQuery.isPending || etaQuery.isPending);
-  const routeErrored = selection.type === "route" && byIdQuery.isError;
-  const route = selection.type === "route" ? byIdQuery.data : null;
+    selection.type === "route" && routeForRecording.isPending;
+  const routeErrored = selection.type === "route" && routeForRecording.isError;
+  const route = selection.type === "route" ? resolvedRoute : null;
+  const usingSnapshot =
+    selection.type === "route" && routeForRecording.source === "snapshot";
 
   return (
     <ScrollView
@@ -338,6 +458,11 @@ function SetupScreen({
               {formatRouteDistance(route.distanceM, route.shape)} ·{" "}
               {route.type === "river" ? "River" : "Flat water"}
             </Text>
+            {usingSnapshot ? (
+              <Text className="mt-1 text-xs font-semibold text-river-500">
+                Offline — using downloaded route
+              </Text>
+            ) : null}
           </View>
         ) : null}
         <Text className="max-w-xs text-center text-xs text-river-400">
@@ -475,13 +600,12 @@ function LiveScreen() {
   const resume = useRecorder((s) => s.resume);
   const finish = useRecorder((s) => s.finish);
 
-  // Re-fetches the route this paddle is tied to purely for its corridor POIs (for the next-POI-ahead
-  // banner) -- the recorder store only keeps the progress-matching geometry, not POI metadata. Same
-  // query key as SetupScreen's byId call, so this is a cache hit in practice, not an extra round trip.
-  const routeQuery = api.routes.byId.useQuery(
-    { id: routeId ?? "" },
-    { enabled: !!routeId },
-  );
+  // Re-resolves the route this paddle is tied to purely for its corridor POIs (for the next-POI-ahead
+  // banner + nav-map markers) and its line -- the recorder store only keeps the progress-matching
+  // geometry, not POI metadata. Same queries as SetupScreen, so online this is a cache hit, not an
+  // extra round trip; offline it falls back to the downloaded route snapshot so the banner/markers
+  // still render on a downloaded route with no signal.
+  const routeData = useRouteForRecording(routeId).route;
 
   const status = machine.status;
   const isAcquiring = status === "acquiring";
@@ -489,8 +613,8 @@ function LiveScreen() {
   const isPaused = status === "manualPaused";
 
   const nextPoi = useMemo(() => {
-    if (!routeModel || !progress || progress.offRoute || !routeQuery.data) return null;
-    const pois: CorridorPoi[] = routeQuery.data.pois.map((p) => ({
+    if (!routeModel || !progress || progress.offRoute || !routeData) return null;
+    const pois: CorridorPoi[] = routeData.pois.map((p) => ({
       id: p.id,
       category: p.category,
       note: p.note,
@@ -498,15 +622,15 @@ function LiveScreen() {
       lng: p.geom.coordinates[0]!,
       lat: p.geom.coordinates[1]!,
     }));
-    return nextPoiAhead(pois, routeQuery.data.shape, routeModel.totalM, progress.progressM);
-  }, [routeModel, progress, routeQuery.data]);
+    return nextPoiAhead(pois, routeData.shape, routeModel.totalM, progress.progressM);
+  }, [routeModel, progress, routeData]);
 
   // Nav map inputs: last accepted fix (the live puck), the route line, the on-route snapped-progress
   // dot, and safety-relevant corridor POIs. Kept mounted only in this LiveScreen (unmounted entirely
   // in setup/finished) so the map's native surface isn't paid for outside the live phase.
   const lastPoint = machine.track[machine.track.length - 1];
   const livePos = lastPoint ? { lng: lastPoint.lng, lat: lastPoint.lat } : null;
-  const routeCoords = routeQuery.data?.geom.coordinates.map(
+  const routeCoords = routeData?.geom.coordinates.map(
     (c) => [c[0], c[1]] as [number, number],
   ) ?? null;
   const snappedPos = progress && !progress.offRoute ? progress.snapped : null;
@@ -514,8 +638,8 @@ function LiveScreen() {
   // archive (zero network). Resolved once on mount -- a free paddle (no routeId) is always online.
   const offlineTripPath = useOfflineTripPath(routeId);
   const navPois = useMemo<NavPoi[]>(() => {
-    if (!routeQuery.data) return [];
-    return routeQuery.data.pois
+    if (!routeData) return [];
+    return routeData.pois
       .filter((p) => (NAV_POI_CATEGORIES as string[]).includes(p.category))
       .map((p) => ({
         id: p.id,
@@ -523,7 +647,7 @@ function LiveScreen() {
         lng: p.geom.coordinates[0]!,
         lat: p.geom.coordinates[1]!,
       }));
-  }, [routeQuery.data]);
+  }, [routeData]);
 
   const avgMph = machine.movingS > 0 ? machine.distanceM / machine.movingS : 0;
   const progressPct =
