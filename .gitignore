@@ -14,7 +14,7 @@
 db.sqlite
 
 # next.js
-/.next/
+.next/
 /out/
 next-env.d.ts
 
@@ -48,3 +48,9 @@ yarn-error.log*
 
 # local tile builds (michigan.pmtiles is deployed by scp, not git)
 /tiles
+
+# expo / turborepo
+.turbo/
+.expo/
+apps/mobile/android/
+apps/mobile/ios/

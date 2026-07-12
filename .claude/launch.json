@@ -4,13 +4,13 @@
     {
       "name": "dev",
       "runtimeExecutable": "pnpm",
-      "runtimeArgs": ["dev"],
+      "runtimeArgs": ["--filter", "@paddle-prints/web", "dev"],
       "port": 3000
     },
     {
       "name": "prod",
       "runtimeExecutable": "pnpm",
-      "runtimeArgs": ["start"],
+      "runtimeArgs": ["--filter", "@paddle-prints/web", "start"],
       "port": 3000
     },
     {
