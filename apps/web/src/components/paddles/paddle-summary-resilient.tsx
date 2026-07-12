@@ -158,7 +158,7 @@ export function PaddleSummaryResilient({
                     {data.routeName}
                   </Link>
                 ) : (
-                  "a free paddle"
+                  "a quick start paddle"
                 )}
               </h1>
               {data.pending ? (

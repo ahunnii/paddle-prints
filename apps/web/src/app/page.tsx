@@ -27,30 +27,36 @@ export default async function Home() {
           <MeLink />
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="grid grid-cols-2 gap-2">
           <Link
             href="/map"
-            className="bg-sunset-500 hover:bg-sunset-600 active:bg-sunset-600 active:scale-[0.97] rounded-full px-4 py-2 text-sm font-semibold shadow-lg transition-colors"
+            className="bg-sunset-500 hover:bg-sunset-600 active:bg-sunset-600 active:scale-[0.97] flex items-center justify-center rounded-full px-4 py-2 text-center text-sm font-semibold shadow-lg transition-colors"
           >
             🗺️ Map
           </Link>
           <Link
             href="/routes"
-            className="border-river-300 text-river-100 hover:bg-river-800 active:bg-river-800 active:scale-[0.97] rounded-full border px-4 py-2 text-sm font-semibold transition-colors"
+            className="border-river-300 text-river-100 hover:bg-river-800 active:bg-river-800 active:scale-[0.97] flex items-center justify-center rounded-full border px-4 py-2 text-center text-sm font-semibold transition-colors"
           >
-            🛶 Routes
+            🛶 My Routes
+          </Link>
+          <Link
+            href="/routes/community"
+            className="border-river-300 text-river-100 hover:bg-river-800 active:bg-river-800 active:scale-[0.97] flex items-center justify-center rounded-full border px-4 py-2 text-center text-sm font-semibold transition-colors"
+          >
+            🌍 Community Routes
           </Link>
           <Link
             href="/routes/new"
-            className="border-river-300 text-river-100 hover:bg-river-800 active:bg-river-800 active:scale-[0.97] rounded-full border px-4 py-2 text-sm font-semibold transition-colors"
+            className="border-river-300 text-river-100 hover:bg-river-800 active:bg-river-800 active:scale-[0.97] flex items-center justify-center rounded-full border px-4 py-2 text-center text-sm font-semibold transition-colors"
           >
-            ➕ New route
+            ➕ Plan a Route
           </Link>
           <Link
             href="/record"
-            className="border-river-300 text-river-100 hover:bg-river-800 active:bg-river-800 active:scale-[0.97] rounded-full border px-4 py-2 text-sm font-semibold transition-colors"
+            className="border-river-300 text-river-100 hover:bg-river-800 active:bg-river-800 active:scale-[0.97] col-span-2 flex items-center justify-center rounded-full border px-4 py-2 text-center text-sm font-semibold transition-colors"
           >
-            ⏺️ Free paddle
+            ⏺️ Quick Start Paddle
           </Link>
         </div>
 
@@ -58,7 +64,7 @@ export default async function Home() {
 
         <section className="flex flex-col gap-3">
           <h2 className="text-river-200 text-xs font-bold uppercase tracking-widest">
-            Crew feed
+            Recent Crew Activity
           </h2>
 
           <FeedList initial={feed} />

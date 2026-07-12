@@ -168,6 +168,11 @@ export default function FeedScreen() {
     // paddler with no signal saves a trip and then can't see it anywhere on this tab.
     return (
       <View className="flex-1 bg-river-50">
+        <View className="p-4 pb-0">
+          <Text className="text-2xl font-extrabold tracking-tight text-river-900">
+            Recent Crew Activity
+          </Text>
+        </View>
         {visiblePending.length > 0 ? (
           <View className="gap-3 p-4 pb-0">{pendingHeader}</View>
         ) : null}
@@ -193,7 +198,14 @@ export default function FeedScreen() {
         keyExtractor={(item) => item.id}
         contentContainerClassName="gap-3 p-4"
         renderItem={({ item }) => <FeedCard item={item} />}
-        ListHeaderComponent={pendingHeader}
+        ListHeaderComponent={
+          <View className="gap-3 pb-1">
+            <Text className="text-2xl font-extrabold tracking-tight text-river-900">
+              Recent Crew Activity
+            </Text>
+            {pendingHeader}
+          </View>
+        }
         refreshControl={
           <RefreshControl
             refreshing={feed.isFetching}

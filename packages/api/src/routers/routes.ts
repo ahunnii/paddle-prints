@@ -74,21 +74,29 @@ export const routesRouter = createTRPCRouter({
       return route;
     }),
 
-  list: protectedProcedure.query(async ({ ctx }) => {
-    return ctx.db
-      .select({
-        id: routes.id,
-        name: routes.name,
-        type: routes.type,
-        shape: routes.shape,
-        distanceM: routes.distanceM,
-        createdAt: routes.createdAt,
-        creatorName: user.name,
-      })
-      .from(routes)
-      .innerJoin(user, eq(routes.createdBy, user.id))
-      .orderBy(desc(routes.createdAt));
-  }),
+  list: protectedProcedure
+    .input(z.object({ scope: z.enum(["mine", "all"]) }).optional())
+    .query(async ({ ctx, input }) => {
+      return ctx.db
+        .select({
+          id: routes.id,
+          name: routes.name,
+          type: routes.type,
+          shape: routes.shape,
+          distanceM: routes.distanceM,
+          createdAt: routes.createdAt,
+          creatorName: user.name,
+          creatorImage: user.image,
+        })
+        .from(routes)
+        .innerJoin(user, eq(routes.createdBy, user.id))
+        .where(
+          input?.scope === "mine"
+            ? eq(routes.createdBy, ctx.session.user.id)
+            : undefined,
+        )
+        .orderBy(desc(routes.createdAt));
+    }),
 
   /** Lightweight id/name/geom for every route, for drawing all saved lines on the community map. */
   listGeoms: protectedProcedure.query(async ({ ctx }) => {

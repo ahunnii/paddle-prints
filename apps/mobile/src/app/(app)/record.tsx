@@ -422,7 +422,7 @@ function SetupScreen({
         <Text className="text-5xl">🛶</Text>
         {selection.type === "free" ? (
           <View className="items-center gap-3">
-            <Text className="text-2xl font-extrabold text-river-900">Free paddle</Text>
+            <Text className="text-2xl font-extrabold text-river-900">Quick Start Paddle</Text>
             <View className="flex-row items-center gap-1 rounded-full bg-river-100 p-1">
               {(["river", "waypoint"] as const).map((t) => (
                 <Pressable
@@ -536,7 +536,7 @@ function RoutePickerList({
             >
               <Text className="text-3xl">🧭</Text>
               <View className="flex-1">
-                <Text className="font-semibold text-river-900">Free paddle</Text>
+                <Text className="font-semibold text-river-900">Quick Start Paddle</Text>
                 <Text className="text-sm text-river-500">
                   No route — just track your trip
                 </Text>
@@ -572,7 +572,7 @@ function RoutePickerList({
         ListEmptyComponent={
           !loading && !error ? (
             <Text className="mt-2 text-center text-sm text-river-400">
-              No saved routes yet — free paddle away.
+              No saved routes yet — start a quick paddle instead.
             </Text>
           ) : null
         }

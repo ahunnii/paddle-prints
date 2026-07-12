@@ -17,14 +17,14 @@ function typeIcon(type: "river" | "waypoint") {
   return type === "waypoint" ? "🌊" : "🏞️";
 }
 
-export default async function RoutesPage() {
+export default async function CommunityRoutesPage() {
   const session = await auth.api.getSession({ headers: await headers() });
 
   if (!session) {
     redirect("/login");
   }
 
-  const routes = await api.routes.list({ scope: "mine" });
+  const routes = await api.routes.list({ scope: "all" });
 
   return (
     <main className="from-river-800 to-river-950 min-h-dvh bg-gradient-to-b px-4 pb-28 pt-[max(2rem,env(safe-area-inset-top))]">
@@ -38,7 +38,7 @@ export default async function RoutesPage() {
               ← Back
             </Link>
             <h1 className="font-display mt-1 text-3xl font-extrabold tracking-tight text-white">
-              My Routes
+              Community Routes
             </h1>
           </div>
         </div>
@@ -46,12 +46,7 @@ export default async function RoutesPage() {
         {routes.length === 0 ? (
           <div className="flex flex-col items-center gap-3 rounded-3xl bg-white/10 p-10 text-center">
             <span className="text-4xl">🛶</span>
-            <p className="text-river-100 text-lg font-medium">
-              No routes yet &mdash; draw your first one, or browse{" "}
-              <Link href="/routes/community" className="underline">
-                Community Routes
-              </Link>
-            </p>
+            <p className="text-river-100 text-lg font-medium">No routes yet</p>
             <Link
               href="/routes/new"
               className="bg-sunset-500 hover:bg-sunset-600 active:scale-[0.98] active:bg-sunset-600 mt-2 rounded-full px-6 py-2.5 font-semibold text-white shadow-lg transition-colors"

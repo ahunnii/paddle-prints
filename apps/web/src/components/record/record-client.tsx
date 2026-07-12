@@ -383,7 +383,7 @@ export function RecordClient({ route }: { route: RecordRoute | null }) {
             </div>
           ) : (
             <div className="flex flex-col items-center gap-3">
-              <h1 className="font-display text-2xl font-extrabold">Free paddle</h1>
+              <h1 className="font-display text-2xl font-extrabold">Quick Start Paddle</h1>
               <div className="flex items-center gap-1 rounded-full bg-river-900 p-1">
                 {(["river", "waypoint"] as const).map((t) => (
                   <button

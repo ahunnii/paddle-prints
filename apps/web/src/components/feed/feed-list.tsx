@@ -172,7 +172,7 @@ export function FeedList({ initial }: { initial: ServerRow[] }) {
                   <span className="text-white">{p.userName}</span>{" "}
                   <span className="text-river-300">paddled</span>{" "}
                   <span className="text-sunset-300">
-                    {p.routeName ?? "a free paddle"}
+                    {p.routeName ?? "a quick start paddle"}
                   </span>
                 </p>
                 {inlineBadge === "syncing" ? (

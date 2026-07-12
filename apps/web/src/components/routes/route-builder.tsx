@@ -402,7 +402,7 @@ export function RouteBuilder() {
 
       <FloatingHeader
         backHref="/routes"
-        title="New route"
+        title="Plan a Route"
         backConfirm={dirty || createRoute.isPending ? "Leave without saving this route?" : undefined}
       />
 

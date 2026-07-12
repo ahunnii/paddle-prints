@@ -185,7 +185,7 @@ export default function PaddleDetailScreen() {
         <View>
           <Text className="text-xl font-extrabold text-river-950">
             {paddle.userName ?? "Someone"} paddled{" "}
-            {paddle.routeId && paddle.routeName ? paddle.routeName : "a free paddle"}
+            {paddle.routeId && paddle.routeName ? paddle.routeName : "a quick start paddle"}
           </Text>
           <Text className="mt-0.5 text-sm text-river-600">
             {formatDateTime(new Date(paddle.startedAt))}
