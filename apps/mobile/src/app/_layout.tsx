@@ -5,6 +5,11 @@ import { Stack } from "expo-router";
 import { Providers } from "../components/providers";
 import { authClient } from "../lib/auth-client";
 
+// Side-effect import: registers the background location task (TaskManager.defineTask) at module scope
+// so it exists before the recorder ever calls startLocationUpdatesAsync, and after any OS-triggered
+// cold restart of the JS context.
+import "../lib/recorder/location-task";
+
 import "../../global.css";
 
 /**
