@@ -14,6 +14,10 @@ export const env = createEnv({
     BETTER_AUTH_SECRET: z.string().min(32),
     BETTER_AUTH_URL: z.string().url(),
     INVITE_CODE: z.string().min(1),
+    // Filesystem path to the statewide source PMTiles archive that per-trip offline extracts are
+    // carved from (see app/api/trips/[routeId]/tiles). Optional: falls back to the repo-relative
+    // ../../tiles/data/michigan.pmtiles (resolved from the apps/web cwd) in local dev.
+    TILES_ARCHIVE_PATH: z.string().optional(),
   },
 
   /**
@@ -36,6 +40,7 @@ export const env = createEnv({
     BETTER_AUTH_SECRET: process.env.BETTER_AUTH_SECRET,
     BETTER_AUTH_URL: process.env.BETTER_AUTH_URL,
     INVITE_CODE: process.env.INVITE_CODE,
+    TILES_ARCHIVE_PATH: process.env.TILES_ARCHIVE_PATH,
     NEXT_PUBLIC_TILES_URL: process.env.NEXT_PUBLIC_TILES_URL,
     NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL,
   },

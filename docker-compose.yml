@@ -13,6 +13,13 @@ services:
       INVITE_CODE: ${INVITE_CODE}
       NEXT_PUBLIC_TILES_URL: ${NEXT_PUBLIC_TILES_URL}
       NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL}
+      # Source archive for per-trip offline extracts, read from the shared tiles volume (mounted
+      # read-only below — the app only ever reads it; extracts are written to the container tmpdir).
+      TILES_ARCHIVE_PATH: /tiles/michigan.pmtiles
+    volumes:
+      # The same volume the `tiles` service populates, mounted read-only so the app can `pmtiles
+      # extract` per-trip corridors from michigan.pmtiles without any risk of mutating it.
+      - tilesdata:/tiles:ro
     depends_on:
       - db
 

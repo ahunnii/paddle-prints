@@ -51,10 +51,22 @@ export interface NavMapProps {
   snapped: { lng: number; lat: number } | null;
   /** Corridor safety POIs (already filtered to NAV_POI_CATEGORIES by the caller). */
   pois: NavPoi[];
+  /**
+   * Absolute `file://` URI of this route's downloaded `.pmtiles` archive, when the trip has been
+   * downloaded for offline use. Passed through to BaseMap so the nav map renders with zero network.
+   */
+  offlineTripPath?: string;
 }
 
 /** The map shown while recording: route line, live position puck, snapped-progress dot, corridor POIs. */
-export function NavMap({ routeCoords, livePos, headingDeg, snapped, pois }: NavMapProps) {
+export function NavMap({
+  routeCoords,
+  livePos,
+  headingDeg,
+  snapped,
+  pois,
+  offlineTripPath,
+}: NavMapProps) {
   const cameraRef = useRef<CameraRef>(null);
   // Follow mode keeps the camera centred on live GPS; a real user gesture breaks it until they
   // recenter via the ◎ button.
@@ -108,6 +120,7 @@ export function NavMap({ routeCoords, livePos, headingDeg, snapped, pois }: NavM
         variant="nav"
         cameraRef={cameraRef}
         onRegionWillChange={handleRegionWillChange}
+        offlineTripPath={offlineTripPath}
       >
         {routeFeature ? (
           <GeoJSONSource id="nav-route-line" data={routeFeature}>

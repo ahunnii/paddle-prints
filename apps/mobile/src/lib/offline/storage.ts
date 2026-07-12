@@ -45,6 +45,13 @@ let _db: SQLiteDatabase | null = null;
  * The shared queue DB handle. Lazily opened + migrated (CREATE TABLE IF NOT EXISTS, so no versioned
  * migrations) on first use, so importing this module never touches the filesystem at import time --
  * matters for Metro's module graph and for any unit test that imports the sync surface.
+ *
+ * Two tables share this one database file (`offline-queue.db`):
+ *   - `pending_rows`  -- the outbound sync queue (paddles + quick-add POIs), driven by ./sync.
+ *   - `offline_trips` -- the index of per-trip offline map archives downloaded to the device
+ *                        (the .pmtiles file itself lives on the filesystem; see ./trips), added
+ *                        here so trip management reuses the same handle rather than opening a
+ *                        second SQLite connection.
  */
 function db(): SQLiteDatabase {
   if (_db) return _db;
@@ -57,10 +64,24 @@ function db(): SQLiteDatabase {
       dead_letter TEXT,
       input TEXT NOT NULL,
       PRIMARY KEY (kind, id)
+    );
+    CREATE TABLE IF NOT EXISTS offline_trips (
+      route_id TEXT PRIMARY KEY,
+      bytes INTEGER NOT NULL,
+      downloaded_at INTEGER NOT NULL
     );`,
   );
   _db = handle;
   return handle;
+}
+
+/**
+ * The shared offline database handle (see `db()` above). Exported so the trip-tile manager
+ * (./trips) can read/write the `offline_trips` table off the same connection the sync queue uses,
+ * with the tables lazily created on first access exactly as the queue relies on.
+ */
+export function getOfflineDb(): SQLiteDatabase {
+  return db();
 }
 
 /** Rebuild a PendingRow from its stored row, reviving the Date-carrying input via superjson. */

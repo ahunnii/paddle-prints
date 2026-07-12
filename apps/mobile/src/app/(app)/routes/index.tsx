@@ -7,10 +7,12 @@
  * File lives at (app)/routes/index.tsx; see the comment on its Tabs.Screen entry in
  * (app)/_layout.tsx for why that makes its registered tab route name "routes/index".
  */
+import { useCallback, useState } from "react";
 import { ActivityIndicator, FlatList, Pressable, Text, View } from "react-native";
-import { useRouter } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 
 import { formatRouteDistance } from "../../../lib/format";
+import { getDownloadedTrips } from "../../../lib/offline/trips";
 import { api, type RouterOutputs } from "../../../lib/trpc";
 
 type RouteItem = RouterOutputs["routes"]["list"][number];
@@ -19,7 +21,7 @@ function typeIcon(type: RouteItem["type"]) {
   return type === "waypoint" ? "🌊" : "🏞️";
 }
 
-function RouteCard({ item }: { item: RouteItem }) {
+function RouteCard({ item, downloaded }: { item: RouteItem; downloaded: boolean }) {
   const router = useRouter();
   return (
     <Pressable
@@ -28,9 +30,18 @@ function RouteCard({ item }: { item: RouteItem }) {
     >
       <Text className="text-3xl">{typeIcon(item.type)}</Text>
       <View className="flex-1">
-        <Text className="font-semibold text-river-900" numberOfLines={1}>
-          {item.name}
-        </Text>
+        <View className="flex-row items-center gap-2">
+          <Text className="flex-shrink font-semibold text-river-900" numberOfLines={1}>
+            {item.name}
+          </Text>
+          {downloaded ? (
+            <View className="rounded-full bg-river-100 px-2 py-0.5">
+              <Text className="text-[10px] font-bold uppercase tracking-wide text-river-600">
+                Downloaded
+              </Text>
+            </View>
+          ) : null}
+        </View>
         <Text className="mt-0.5 text-sm text-river-600">
           {formatRouteDistance(item.distanceM, item.shape)} · {item.creatorName} ·{" "}
           {new Date(item.createdAt).toLocaleDateString()}
@@ -42,6 +53,15 @@ function RouteCard({ item }: { item: RouteItem }) {
 
 export default function RoutesScreen() {
   const routesQuery = api.routes.list.useQuery();
+
+  // Which routes have offline tiles downloaded -- refreshed each time the tab regains focus (a
+  // download/remove happens on the detail screen, so re-read on return rather than subscribing).
+  const [downloadedIds, setDownloadedIds] = useState<Set<string>>(new Set());
+  useFocusEffect(
+    useCallback(() => {
+      setDownloadedIds(new Set(getDownloadedTrips().map((t) => t.routeId)));
+    }, []),
+  );
 
   if (routesQuery.isPending) {
     return (
@@ -75,7 +95,9 @@ export default function RoutesScreen() {
         data={routes}
         keyExtractor={(item) => item.id}
         contentContainerClassName="gap-3 p-4"
-        renderItem={({ item }) => <RouteCard item={item} />}
+        renderItem={({ item }) => (
+          <RouteCard item={item} downloaded={downloadedIds.has(item.id)} />
+        )}
         ListHeaderComponent={
           <Text className="mb-1 text-2xl font-extrabold tracking-tight text-river-900">
             Routes

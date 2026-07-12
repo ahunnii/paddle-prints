@@ -32,8 +32,15 @@ import type { Feature, LineString } from "geojson";
 import { BaseMap } from "../../../components/map/base-map";
 import { PoiPill } from "../../../components/map/poi-pill";
 import { authClient } from "../../../lib/auth-client";
-import { formatHM, formatRouteDistance } from "../../../lib/format";
+import { formatBytes, formatHM, formatRouteDistance } from "../../../lib/format";
 import { boundsOf } from "../../../lib/geo";
+import {
+  deleteTrip,
+  downloadTrip,
+  getDownloadedTrip,
+  type DownloadProgress,
+  type OfflineTrip,
+} from "../../../lib/offline/trips";
 import { poiHeadline, poiMeta } from "../../../lib/pois";
 import { api, type RouterOutputs } from "../../../lib/trpc";
 
@@ -302,6 +309,13 @@ export default function RouteDetailScreen() {
           )}
         </View>
 
+        <View>
+          <Text className="mb-1 text-xs font-bold uppercase tracking-widest text-river-500">
+            Offline map
+          </Text>
+          <TripDownloadSection routeId={route.id} />
+        </View>
+
         <View className="gap-2">
           <Pressable
             onPress={() => router.push(`/record?route=${route.id}`)}
@@ -331,6 +345,107 @@ export default function RouteDetailScreen() {
           ) : null}
         </View>
       </ScrollView>
+    </View>
+  );
+}
+
+/**
+ * The "Download for offline" control. Mirrors web's DownloadTripButton
+ * (apps/web/src/components/offline/download-trip-button.tsx): three states driven by local component
+ * state (there's no Dexie liveQuery on mobile, so we set state after each action) --
+ *   - downloading -> a progress bar with a live % and byte count
+ *   - downloaded  -> a "Downloaded · X MB" badge + a "Remove" text button (Alert-confirmed)
+ *   - otherwise   -> a sunset-outline "Download for offline" button
+ * Downloading also pulls the shared style/glyph/sprite assets (via downloadTrip -> ensureOfflineMapAssets)
+ * so the route renders with zero network while recording.
+ */
+function TripDownloadSection({ routeId }: { routeId: string }) {
+  const [trip, setTrip] = useState<OfflineTrip | undefined>(() =>
+    getDownloadedTrip(routeId),
+  );
+  const [progress, setProgress] = useState<DownloadProgress | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleDownload() {
+    setError(null);
+    setBusy(true);
+    setProgress({ bytesWritten: 0, totalBytes: 0 });
+    try {
+      const record = await downloadTrip(routeId, setProgress);
+      setTrip(record);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Download failed");
+    } finally {
+      setBusy(false);
+      setProgress(null);
+    }
+  }
+
+  function handleRemove() {
+    Alert.alert(
+      "Remove offline map?",
+      "You can download it again anytime.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Remove",
+          style: "destructive",
+          onPress: () => {
+            deleteTrip(routeId);
+            setTrip(undefined);
+          },
+        },
+      ],
+    );
+  }
+
+  if (busy) {
+    const pct =
+      progress && progress.totalBytes > 0
+        ? Math.round((progress.bytesWritten / progress.totalBytes) * 100)
+        : 0;
+    return (
+      <View className="gap-1.5 rounded-2xl bg-river-100 p-3">
+        <Text className="text-xs font-semibold text-river-700">
+          Downloading… {pct}% · {formatBytes(progress?.bytesWritten ?? 0)}
+        </Text>
+        <View className="h-2 overflow-hidden rounded-full bg-river-200">
+          <View
+            className="h-full rounded-full bg-sunset-500"
+            style={{ width: `${pct}%` }}
+          />
+        </View>
+      </View>
+    );
+  }
+
+  if (trip) {
+    return (
+      <View className="flex-row items-center justify-between gap-2 rounded-2xl bg-river-100 px-4 py-3">
+        <Text className="font-semibold text-river-700">
+          Downloaded · {formatBytes(trip.bytes)}
+        </Text>
+        <Pressable onPress={handleRemove} accessibilityRole="button">
+          <Text className="font-semibold text-red-600">Remove</Text>
+        </Pressable>
+      </View>
+    );
+  }
+
+  return (
+    <View className="gap-1">
+      <Pressable
+        onPress={() => void handleDownload()}
+        className="min-h-12 flex-row items-center justify-center gap-2 rounded-2xl border border-sunset-400 bg-sunset-50"
+      >
+        <Ionicons name="cloud-download-outline" size={18} color="#ea6a1f" />
+        <Text className="font-semibold text-sunset-600">Download for offline</Text>
+      </Pressable>
+      <Text className="text-xs text-river-500">
+        Saves this route&apos;s map to your device so it works with no signal.
+      </Text>
+      {error ? <Text className="text-xs text-red-600">{error}</Text> : null}
     </View>
   );
 }

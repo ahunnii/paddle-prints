@@ -74,6 +74,25 @@ ENV NEXT_TELEMETRY_DISABLED=1
 RUN addgroup --system --gid 1001 nodejs \
   && adduser --system --uid 1001 nextjs
 
+# Install go-pmtiles (the `pmtiles` CLI) so the /api/trips/[routeId]/tiles route can carve per-trip
+# offline extracts from the mounted statewide archive at request time. Pinned for reproducibility.
+# The published Linux build is a statically linked Go binary (CGO disabled), so it runs on this
+# Alpine/musl image unmodified. `uname -m` reports x86_64 / aarch64; map the latter to the release's
+# `arm64` asset name.
+ARG PMTILES_VERSION=1.31.0
+RUN set -eux; \
+  case "$(uname -m)" in \
+    x86_64) PMTILES_ARCH=x86_64 ;; \
+    aarch64 | arm64) PMTILES_ARCH=arm64 ;; \
+    *) echo "unsupported arch: $(uname -m)" >&2; exit 1 ;; \
+  esac; \
+  wget -qO /tmp/pmtiles.tar.gz \
+    "https://github.com/protomaps/go-pmtiles/releases/download/v${PMTILES_VERSION}/go-pmtiles_${PMTILES_VERSION}_Linux_${PMTILES_ARCH}.tar.gz"; \
+  tar -xzf /tmp/pmtiles.tar.gz -C /usr/local/bin pmtiles; \
+  rm /tmp/pmtiles.tar.gz; \
+  chmod +x /usr/local/bin/pmtiles; \
+  /usr/local/bin/pmtiles version
+
 # Layering (create-t3-turbo style): lay down the prod node_modules first as a baseline, then
 # overlay the standalone output on top. The standalone bundle ships its own minimal, precisely
 # traced node_modules (next/react/sharp/...) which win on any file conflict -- and since both trees

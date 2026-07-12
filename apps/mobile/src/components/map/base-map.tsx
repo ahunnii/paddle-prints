@@ -86,6 +86,11 @@ export interface BaseMapProps {
   mapRef?: Ref<MapRef>;
   /** Ref to the Camera (for programmatic easeTo / fitBounds). */
   cameraRef?: Ref<CameraRef>;
+  /**
+   * Absolute `file://` URI of a downloaded per-trip `.pmtiles` archive. When set, the style loads
+   * fully offline (local tiles + local glyphs/sprite) instead of hitting the tile/style servers.
+   */
+  offlineTripPath?: string;
   /** Sources / layers / annotations rendered inside the map. */
   children?: ReactNode;
 }
@@ -100,6 +105,7 @@ export function BaseMap({
   onStyleLoaded,
   mapRef,
   cameraRef,
+  offlineTripPath,
   children,
 }: BaseMapProps) {
   const [style, setStyle] = useState<StyleSpecification | null>(null);
@@ -115,7 +121,7 @@ export function BaseMap({
   useEffect(() => {
     let cancelled = false;
     setError(null);
-    getMapStyle(variant)
+    getMapStyle(variant, { offlineTripPath })
       .then((s) => {
         if (!cancelled) setStyle(s);
       })
@@ -127,7 +133,7 @@ export function BaseMap({
     return () => {
       cancelled = true;
     };
-  }, [variant, loadAttempt]);
+  }, [variant, loadAttempt, offlineTripPath]);
 
   useEffect(
     () => () => {

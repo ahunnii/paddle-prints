@@ -47,6 +47,7 @@ import { readLiveCheckpoint, useRecorder } from "../../lib/recorder/use-recorder
 import { trpcVanilla } from "../../lib/trpc-vanilla";
 import { api, type RouterOutputs } from "../../lib/trpc";
 import { queuePaddle, syncQueue } from "../../lib/offline/sync";
+import { useOfflineTripPath } from "../../lib/offline/use-offline-trip-path";
 import { getRandomUUID } from "../../lib/uuid";
 
 function permissionMessage(
@@ -509,6 +510,9 @@ function LiveScreen() {
     (c) => [c[0], c[1]] as [number, number],
   ) ?? null;
   const snappedPos = progress && !progress.offRoute ? progress.snapped : null;
+  // If this route's tiles were downloaded for offline use, render the nav map from the local
+  // archive (zero network). Resolved once on mount -- a free paddle (no routeId) is always online.
+  const offlineTripPath = useOfflineTripPath(routeId);
   const navPois = useMemo<NavPoi[]>(() => {
     if (!routeQuery.data) return [];
     return routeQuery.data.pois
@@ -551,6 +555,7 @@ function LiveScreen() {
           headingDeg={headingDeg}
           snapped={snappedPos}
           pois={navPois}
+          offlineTripPath={offlineTripPath}
         />
       </View>
 
