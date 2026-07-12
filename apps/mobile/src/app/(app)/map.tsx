@@ -28,6 +28,7 @@ import {
   type NativeSyntheticEvent,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
 import {
   GeoJSONSource,
   Layer,
@@ -58,6 +59,7 @@ interface SelectedRoute {
 export default function MapScreen() {
   const { data: session } = authClient.useSession();
   const selfId = session?.user.id;
+  const router = useRouter();
 
   const mapRef = useRef<MapRef>(null);
   const utils = api.useUtils();
@@ -274,9 +276,6 @@ export default function MapScreen() {
                   {formatDistanceMi(selectedRoute.distanceM)}
                 </Text>
               ) : null}
-              <Text className="mt-1 text-xs text-river-400">
-                Route details coming soon
-              </Text>
             </View>
             <Pressable
               onPress={() => setSelectedRoute(null)}
@@ -286,6 +285,12 @@ export default function MapScreen() {
               <Ionicons name="close" size={20} color="#4fb0cd" />
             </Pressable>
           </View>
+          <Pressable
+            onPress={() => router.push(`/routes/${selectedRoute.id}`)}
+            className="mt-3 min-h-11 items-center justify-center rounded-xl bg-sunset-500"
+          >
+            <Text className="text-sm font-extrabold text-white">View route</Text>
+          </Pressable>
         </View>
       ) : null}
 

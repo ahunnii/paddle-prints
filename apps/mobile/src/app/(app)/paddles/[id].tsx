@@ -29,7 +29,7 @@ import {
 } from "@maplibre/maplibre-react-native";
 import type { Feature, LineString } from "geojson";
 
-import { BaseMap, type Bbox } from "../../../components/map/base-map";
+import { BaseMap } from "../../../components/map/base-map";
 import { authClient } from "../../../lib/auth-client";
 import {
   formatClock,
@@ -37,26 +37,11 @@ import {
   formatDistanceMi,
   formatSpeedMph,
 } from "../../../lib/format";
+import { boundsOf } from "../../../lib/geo";
 import { api } from "../../../lib/trpc";
 
 const ROUTE_COLOR = "#1f7796"; // river-600
 const TRACK_COLOR = "#f97316"; // sunset-500
-
-/** Bounding box of a coordinate list, in the [west, south, east, north] order every camera call here
- * expects (matches `Bbox` / MLRN's flat `LngLatBounds` tuple). */
-function boundsOf(coords: Array<[number, number]>): Bbox {
-  let west = coords[0]![0]!;
-  let east = west;
-  let south = coords[0]![1]!;
-  let north = south;
-  for (const [lng, lat] of coords) {
-    if (lng < west) west = lng;
-    if (lng > east) east = lng;
-    if (lat < south) south = lat;
-    if (lat > north) north = lat;
-  }
-  return [west, south, east, north];
-}
 
 export default function PaddleDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();

@@ -26,7 +26,7 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 
 import { nextPoiAhead, type CorridorPoi } from "@paddle-prints/recorder-core/next-poi";
 import { simplifyTrack } from "@paddle-prints/recorder-core/simplify";
@@ -36,6 +36,7 @@ import { NavMap, type NavPoi } from "../../components/map/nav-map";
 import {
   formatClock,
   formatDistanceMi,
+  formatRouteDistance,
   formatSpeedMph,
   formatTimeOfDay,
 } from "../../lib/format";
@@ -202,6 +203,19 @@ function SetupScreen({
   const configure = useRecorder((s) => s.configure);
   const start = useRecorder((s) => s.start);
 
+  // The route-detail screen's "Start paddle" button pushes here with `?route=<id>` -- pick it up as
+  // an initial selection so the user lands straight in the confirm step instead of the picker list.
+  // SetupScreen only ever mounts when the machine is idle and no resume-checkpoint prompt is showing
+  // (see RecordScreen above), so no extra status check is needed here; the ref just guards against
+  // re-applying the same param value again (e.g. after the user manually backs out to the picker).
+  const { route: routeParam } = useLocalSearchParams<{ route?: string }>();
+  const lastAppliedRouteParam = useRef<string | null>(null);
+  useEffect(() => {
+    if (!routeParam || lastAppliedRouteParam.current === routeParam) return;
+    lastAppliedRouteParam.current = routeParam;
+    setSelection({ type: "route", id: routeParam });
+  }, [routeParam]);
+
   const routesQuery = api.routes.list.useQuery(undefined, {
     enabled: selection === null,
   });
@@ -319,10 +333,7 @@ function SetupScreen({
               {route.name}
             </Text>
             <Text className="text-sm text-river-600">
-              {formatDistanceMi(
-                route.distanceM * (route.shape === "out_and_back" ? 2 : 1),
-              )}
-              {route.shape === "out_and_back" ? " round trip" : ""} ·{" "}
+              {formatRouteDistance(route.distanceM, route.shape)} ·{" "}
               {route.type === "river" ? "River" : "Flat water"}
             </Text>
           </View>
@@ -426,11 +437,7 @@ function RoutePickerList({
             <View className="flex-1">
               <Text className="font-semibold text-river-900">{item.name}</Text>
               <Text className="text-sm text-river-500">
-                {formatDistanceMi(
-                  item.distanceM * (item.shape === "out_and_back" ? 2 : 1),
-                )}
-                {item.shape === "out_and_back" ? " round trip" : " one-way"} ·{" "}
-                {item.creatorName}
+                {formatRouteDistance(item.distanceM, item.shape)} · {item.creatorName}
               </Text>
             </View>
           </Pressable>

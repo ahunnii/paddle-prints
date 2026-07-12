@@ -17,6 +17,17 @@ export function formatSpeedMph(avgSpeedMps: number): string {
   return `${(avgSpeedMps * MPS_TO_MPH).toFixed(1)} mph`;
 }
 
+/** e.g. "3.2 mi" or "3.2 mi (round trip)" -- doubles the stored (one-way) distance for an
+ * out-and-back route, since `routes.distanceM` is always just the drawn line's length. Mirrors the
+ * inline `formatDistance` in apps/web/src/app/routes/page.tsx and routes/[id]/page.tsx. */
+export function formatRouteDistance(
+  distanceM: number,
+  shape: "one_way" | "out_and_back",
+): string {
+  const miles = (distanceM / METERS_PER_MILE) * (shape === "out_and_back" ? 2 : 1);
+  return `${miles.toFixed(1)} mi${shape === "out_and_back" ? " (round trip)" : ""}`;
+}
+
 /** e.g. "1h 23m" or "23m" */
 export function formatDuration(elapsedS: number): string {
   const s = Math.max(0, Math.floor(elapsedS));
@@ -53,4 +64,14 @@ export function formatTimeOfDay(date: Date): string {
     hour: "numeric",
     minute: "2-digit",
   }).format(date);
+}
+
+/** `h:mm` (zero-padded minutes, clamped to non-negative), e.g. "1:48" for an hour forty-eight
+ * minutes, "0:23" for twenty-three minutes. Ported from
+ * apps/web/src/components/routes/your-pace-card.tsx for the route-detail "Your pace" card. */
+export function formatHM(totalS: number): string {
+  const s = Math.max(0, Math.round(totalS));
+  const h = Math.floor(s / 3600);
+  const m = Math.round((s % 3600) / 60);
+  return `${h}:${String(m).padStart(2, "0")}`;
 }
