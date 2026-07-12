@@ -13,6 +13,7 @@
   "dependencies": {
     "@better-auth/expo": "^1.6.23",
     "@expo/vector-icons": "^15.1.1",
+    "@maplibre/maplibre-react-native": "^11.3.6",
     "@paddle-prints/api": "workspace:*",
     "@paddle-prints/recorder-core": "workspace:*",
     "@paddle-prints/tokens": "workspace:*",

@@ -47,6 +47,7 @@ const config: ExpoConfig = {
         isAndroidForegroundServiceEnabled: true,
       },
     ],
+    "@maplibre/maplibre-react-native",
   ],
   experiments: { typedRoutes: true },
 };
