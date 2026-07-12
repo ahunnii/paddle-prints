@@ -76,9 +76,10 @@ export interface BaseMapProps {
   /** Map press handler (bubbles feature presses from child sources). */
   onPress?: MapProps["onPress"];
   /**
-   * Fires once the style JSON has loaded and the <Camera> (and its `cameraRef`) has actually mounted.
-   * Style loading is an async fetch, so a caller that wants to call `cameraRef.current.fitBounds(...)`
-   * right after mount must wait for this -- calling it before the ref is attached is a silent no-op.
+   * Fires once the NATIVE map has finished loading (MLRN's onDidFinishLoadingMap) -- i.e. the map is
+   * laid out and camera commands will actually take effect. A caller that wants to call
+   * `cameraRef.current.fitBounds(...)` right after mount must wait for this; calling it after only
+   * the JS style fetch resolves is a silent no-op because the native view isn't ready yet.
    */
   onStyleLoaded?: () => void;
   /** Ref to the underlying Map (for getCenter / queryRenderedFeatures). */
@@ -135,10 +136,8 @@ export function BaseMap({
     [],
   );
 
-  useEffect(() => {
-    if (style) onStyleLoaded?.();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [style]);
+  const onStyleLoadedRef = useRef(onStyleLoaded);
+  onStyleLoadedRef.current = onStyleLoaded;
 
   const handleRegionDidChange = (
     event: NativeSyntheticEvent<ViewStateChangeEvent>,
@@ -180,6 +179,7 @@ export function BaseMap({
       style={{ flex: 1 }}
       onRegionDidChange={handleRegionDidChange}
       onRegionWillChange={onRegionWillChange}
+      onDidFinishLoadingMap={() => onStyleLoadedRef.current?.()}
       onPress={onPress}
       logo={false}
       attribution

@@ -15,9 +15,23 @@
  * The mutated style is memoized per variant so remounting a map (tab switches, detail screens)
  * doesn't refetch or re-mutate it.
  */
-import type { StyleSpecification } from "@maplibre/maplibre-react-native";
+import {
+  LogManager,
+  type StyleSpecification,
+} from "@maplibre/maplibre-react-native";
 
 import { env } from "../../env";
+
+// The vendored Noto glyph set only covers the Latin-ish ranges the web app ships
+// (0-1279); labels that ask for anything beyond that (symbols, CJK) 404 against the
+// glyph server and MapLibre Native logs an error for each miss. Those characters
+// simply don't render -- same silent behavior as the web map -- so suppress this one
+// benign message class instead of letting dev LogBox treat it as a red-screen error.
+LogManager.onLog(
+  (event) =>
+    event.message.includes("Failed to load glyph range") &&
+    event.message.includes("HTTP status code 404"),
+);
 
 export type MapStyleVariant = "default" | "nav";
 
