@@ -46,6 +46,7 @@ import { ensureRecorderPermissions } from "../../lib/recorder/permissions";
 import { readLiveCheckpoint, useRecorder } from "../../lib/recorder/use-recorder";
 import { trpcVanilla } from "../../lib/trpc-vanilla";
 import { api, type RouterOutputs } from "../../lib/trpc";
+import { queuePaddle, syncQueue } from "../../lib/offline/sync";
 import { getRandomUUID } from "../../lib/uuid";
 
 function permissionMessage(
@@ -674,15 +675,16 @@ function FinishedScreen({ freeTripType }: { freeTripType: TripType }) {
   // toggle choice -- kept in RecordScreen's `freeTripType` -- is what actually goes on the record.
   const tripType = routeId != null ? storeTripType : freeTripType;
 
-  const createPaddle = api.paddles.create.useMutation();
   const utils = api.useUtils();
   const paddleId = useRef<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
   const avgMph = machine.movingS > 0 ? machine.distanceM / machine.movingS : 0;
 
   async function handleSave() {
     setError(null);
+    setSaving(true);
     paddleId.current ??= getRandomUUID();
 
     // Full fidelity into trackJson; ~10 m Douglas-Peucker into the stored geometry -- exactly
@@ -711,16 +713,23 @@ function FinishedScreen({ freeTripType }: { freeTripType: TripType }) {
     };
 
     try {
-      await createPaddle.mutateAsync(input);
-      // The paddle is safely saved server-side; now it's safe to clear the checkpoint and reset the
-      // recorder back to idle. discard() already clears the checkpoint and tears down, so it's the
-      // right post-save reset -- no dedicated store method needed.
+      // Queue-first: write the paddle to the durable SQLite queue BEFORE anything else. Once this
+      // resolves the trip is safe on the device even with no signal, so leaving the screen can never
+      // lose it -- exactly web's record-client.tsx submit() semantics. Only a queue-write failure
+      // (nearly impossible -- a local SQLite insert) surfaces the error state now; network errors no
+      // longer block the user on this screen.
+      await queuePaddle(input);
+      // Now that the paddle is durably queued, it's safe to clear the checkpoint and reset the
+      // recorder to idle. discard() already clears the checkpoint and tears down.
       discard();
+      // Fire a background drain (best-effort; the triggers also cover launch/foreground/reconnect).
+      void syncQueue();
+      // Reflect the pending paddle immediately, then navigate to the feed.
       await utils.paddles.feed.invalidate();
       router.replace("/");
     } catch (err) {
-      // Keep the checkpoint (still holds the finished machine state) so a failed save can be retried
-      // without losing the trip.
+      // Queueing failed (should be near-impossible) -- keep the checkpoint so the trip isn't lost.
+      setSaving(false);
       setError(
         err instanceof Error
           ? err.message
@@ -769,10 +778,10 @@ function FinishedScreen({ freeTripType }: { freeTripType: TripType }) {
 
       <Pressable
         onPress={() => void handleSave()}
-        disabled={createPaddle.isPending}
+        disabled={saving}
         className="min-h-14 items-center justify-center rounded-2xl bg-sunset-500 disabled:opacity-60"
       >
-        {createPaddle.isPending ? (
+        {saving ? (
           <ActivityIndicator color="#fff" />
         ) : (
           <Text className="text-lg font-bold text-white">Save paddle</Text>
@@ -780,7 +789,7 @@ function FinishedScreen({ freeTripType }: { freeTripType: TripType }) {
       </Pressable>
       <Pressable
         onPress={handleDiscard}
-        disabled={createPaddle.isPending}
+        disabled={saving}
         className="min-h-12 items-center justify-center rounded-2xl border border-river-300"
       >
         <Text className="font-semibold text-river-700">Discard</Text>

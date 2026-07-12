@@ -17,7 +17,7 @@
  *   - Camera read: mapRef.current.getCenter() returns Promise<LngLat> ([lng, lat]) for placement save.
  *   - ViewAnnotation: arbitrary RN child anchored to lngLat, with its own onPress (used for POIs).
  */
-import { useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   Pressable,
@@ -28,7 +28,7 @@ import {
   type NativeSyntheticEvent,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import {
   GeoJSONSource,
   Layer,
@@ -42,11 +42,48 @@ import { BaseMap, type Bbox } from "../../components/map/base-map";
 import { PoiPill } from "../../components/map/poi-pill";
 import { authClient } from "../../lib/auth-client";
 import { formatDateTime, formatDistanceMi } from "../../lib/format";
+import {
+  pendingPoiStore,
+  savePoiQueued,
+  type PendingRow,
+  type PoiInput,
+} from "../../lib/offline/sync";
 import { POI_CATEGORIES, poiMeta, type PoiCategory } from "../../lib/pois";
 import { api, type RouterOutputs } from "../../lib/trpc";
-import { getRandomUUID } from "../../lib/uuid";
 
 type PoiItem = RouterOutputs["pois"]["inBbox"][number];
+
+/**
+ * POIs queued on this device but not yet on the server. Polled on focus + every 5s while pending, and
+ * refreshed explicitly right after a queued save. Mirrors web's `pendingPois` liveQuery merge in
+ * community-map-client.tsx -- the difference is native has no reactive query, so we poll lightly.
+ */
+function usePendingPois() {
+  const [rows, setRows] = useState<PendingRow<PoiInput>[]>([]);
+
+  const refresh = useCallback(() => {
+    pendingPoiStore
+      .toArray()
+      .then(setRows)
+      .catch(() => {
+        // Best-effort local read; a transient failure just means no pending pins this tick.
+      });
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      refresh();
+    }, [refresh]),
+  );
+
+  useEffect(() => {
+    if (rows.length === 0) return;
+    const timer = setInterval(refresh, 5000);
+    return () => clearInterval(timer);
+  }, [rows.length, refresh]);
+
+  return { rows, refresh };
+}
 
 const ROUTE_LINE_COLOR = "#4fb0cd"; // river-400
 
@@ -70,6 +107,10 @@ export default function MapScreen() {
   const [placing, setPlacing] = useState(false);
   const [placeCategory, setPlaceCategory] = useState<PoiCategory>("hazard");
   const [placeNote, setPlaceNote] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [confirmation, setConfirmation] = useState<string | null>(null);
+
+  const { rows: pendingPoiRows, refresh: refreshPendingPois } = usePendingPois();
 
   const routesQuery = api.routes.listGeoms.useQuery();
   // routes.listGeoms carries geometry but not distance; routes.list carries the stored distance.
@@ -85,8 +126,14 @@ export default function MapScreen() {
     refetchOnWindowFocus: true,
   });
 
-  const createPoi = api.pois.create.useMutation();
   const deletePoi = api.pois.delete.useMutation();
+
+  // Auto-dismiss the small "saved" confirmation pill after a beat.
+  useEffect(() => {
+    if (!confirmation) return;
+    const t = setTimeout(() => setConfirmation(null), 2500);
+    return () => clearTimeout(t);
+  }, [confirmation]);
 
   const routeFeatures = useMemo<
     FeatureCollection<LineString, { id: string; name: string }>
@@ -109,6 +156,10 @@ export default function MapScreen() {
   }, [routeMetaQuery.data]);
 
   const pois = poisQuery.data ?? [];
+  // Pending POIs not yet reflected by the server query -- drawn as translucent pins so the user sees
+  // their spot immediately, offline included (community-map-client.tsx does the same on web).
+  const serverPoiIds = new Set(pois.map((p) => p.id));
+  const pendingPois = pendingPoiRows.filter((row) => !serverPoiIds.has(row.id));
   const presenceRows = (presenceQuery.data ?? []).filter(
     (row) => row.userId !== selfId,
   );
@@ -143,21 +194,29 @@ export default function MapScreen() {
     const center = await mapRef.current?.getCenter();
     if (!center) return;
     const note = placeNote.trim();
-    createPoi.mutate(
-      {
-        id: getRandomUUID(),
+    setSaving(true);
+    try {
+      // Queue-first, offline-safe: savePoiQueued writes the spot to SQLite, tries one immediate drain,
+      // and reports whether it reached the server. The server dedupes by client uuid, so this can
+      // never duplicate on a retry.
+      const status = await savePoiQueued({
         category: placeCategory,
         note: note.length > 0 ? note : undefined,
         point: { lng: center[0], lat: center[1] },
-      },
-      {
-        onSuccess: () => {
-          void utils.pois.inBbox.invalidate();
-          setPlacing(false);
-          setPlaceNote("");
-        },
-      },
-    );
+      });
+      if (status === "synced") {
+        void utils.pois.inBbox.invalidate();
+        setConfirmation("Spot saved");
+      } else {
+        // Still queued (offline / send failed) -- surface it as a translucent pending pin right away.
+        refreshPendingPois();
+        setConfirmation("Saved offline — will sync when online");
+      }
+      setPlacing(false);
+      setPlaceNote("");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleDelete = (poi: PoiItem) => {
@@ -224,6 +283,23 @@ export default function MapScreen() {
           );
         })}
 
+        {pendingPois.map((row) => {
+          const meta = poiMeta(row.input.category);
+          return (
+            <ViewAnnotation
+              key={`pending-${row.id}`}
+              id={`pending-poi-${row.id}`}
+              lngLat={[row.input.point.lng, row.input.point.lat]}
+              anchor="center"
+            >
+              {/* Translucent so it reads as "not yet synced" and can't be tapped like a saved spot. */}
+              <View style={{ opacity: 0.6 }} pointerEvents="none">
+                <PoiPill emoji={meta.emoji} color={meta.color} />
+              </View>
+            </ViewAnnotation>
+          );
+        })}
+
         {presenceRows.map((row) => {
           const lng = row.geom.coordinates[0]!;
           const lat = row.geom.coordinates[1]!;
@@ -247,6 +323,18 @@ export default function MapScreen() {
           );
         })}
       </BaseMap>
+
+      {/* Transient "spot saved / saved offline" confirmation pill. */}
+      {confirmation ? (
+        <View
+          pointerEvents="none"
+          className="absolute inset-x-0 top-4 items-center"
+        >
+          <View className="rounded-full bg-river-900 px-4 py-2 shadow-lg" style={{ elevation: 6 }}>
+            <Text className="text-sm font-semibold text-white">{confirmation}</Text>
+          </View>
+        </View>
+      ) : null}
 
       {/* Placement crosshair, centered over the map. */}
       {placing ? (
@@ -395,12 +483,12 @@ export default function MapScreen() {
             </Pressable>
             <Pressable
               onPress={() => void handleSave()}
-              disabled={createPoi.isPending}
+              disabled={saving}
               className="min-h-11 flex-1 items-center justify-center rounded-xl bg-sunset-500"
-              style={{ opacity: createPoi.isPending ? 0.6 : 1 }}
+              style={{ opacity: saving ? 0.6 : 1 }}
             >
               <Text className="text-sm font-extrabold text-white">
-                {createPoi.isPending ? "Saving…" : "Save spot"}
+                {saving ? "Saving…" : "Save spot"}
               </Text>
             </Pressable>
           </View>

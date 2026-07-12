@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
@@ -7,7 +7,7 @@ import {
   Text,
   View,
 } from "react-native";
-import { useRouter } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 
 import {
   formatDateTime,
@@ -15,9 +15,80 @@ import {
   formatDuration,
   formatSpeedMph,
 } from "../../lib/format";
+import {
+  pendingPaddleStore,
+  type PaddleInput,
+  type PendingRow,
+} from "../../lib/offline/sync";
 import { api, type RouterOutputs } from "../../lib/trpc";
 
 type FeedItem = RouterOutputs["paddles"]["feed"][number];
+
+/**
+ * The paddles queued on this device but not yet on the server. Polled on screen focus, and every 5s
+ * only while something is pending (there's no Dexie liveQuery equivalent on native; this stays light).
+ * A drain that lands via the sync triggers invalidates the feed query and deletes the queue rows, so
+ * the next poll drops the pending card and the real feed row appears in its place.
+ */
+function usePendingPaddles() {
+  const [rows, setRows] = useState<PendingRow<PaddleInput>[]>([]);
+
+  const refresh = useCallback(() => {
+    pendingPaddleStore
+      .toArray()
+      .then(setRows)
+      .catch(() => {
+        // Reading the local queue is best-effort; a transient failure just means no pending cards.
+      });
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      refresh();
+    }, [refresh]),
+  );
+
+  useEffect(() => {
+    if (rows.length === 0) return;
+    const timer = setInterval(refresh, 5000);
+    return () => clearInterval(timer);
+  }, [rows.length, refresh]);
+
+  return { rows, refresh };
+}
+
+/** A queued (or dead-lettered) paddle rendered as a feed card with a "Waiting to sync" chip. */
+function PendingPaddleCard({ row }: { row: PendingRow<PaddleInput> }) {
+  const failed = row.deadLetter != null;
+  return (
+    <View className="rounded-2xl border border-sunset-200 bg-white p-4 shadow-sm">
+      <View className="flex-row items-center justify-between gap-2">
+        <Text className="flex-1 font-semibold text-river-900" numberOfLines={1}>
+          You
+        </Text>
+        <View
+          className={`rounded-full px-2 py-0.5 ${failed ? "bg-red-100" : "bg-sunset-100"}`}
+        >
+          <Text
+            className={`text-xs font-bold ${failed ? "text-red-700" : "text-sunset-700"}`}
+          >
+            {failed ? "Sync failed" : "Waiting to sync"}
+          </Text>
+        </View>
+      </View>
+
+      <Text className="mt-1 text-sm text-river-600">
+        {formatDistanceMi(row.input.distanceM)} ·{" "}
+        {formatDuration(row.input.elapsedS)} · avg{" "}
+        {formatSpeedMph(row.input.avgSpeedMps)}
+      </Text>
+
+      <Text className="mt-1 text-xs text-river-400">
+        {formatDateTime(row.input.startedAt)}
+      </Text>
+    </View>
+  );
+}
 
 function tripTypeLabel(tripType: FeedItem["tripType"]) {
   return tripType === "river" ? "River" : "Flat water";
@@ -64,10 +135,25 @@ function FeedCard({ item }: { item: FeedItem }) {
 
 export default function FeedScreen() {
   const feed = api.paddles.feed.useQuery();
+  const { rows: pendingRows, refresh: refreshPending } = usePendingPaddles();
 
   const onRefresh = useCallback(() => {
+    refreshPending();
     void feed.refetch();
-  }, [feed]);
+  }, [feed, refreshPending]);
+
+  // Hide a queued row the instant its real server row lands in the feed (its id is the paddle id).
+  const serverIds = new Set((feed.data ?? []).map((item) => item.id));
+  const visiblePending = pendingRows.filter((row) => !serverIds.has(row.id));
+
+  const pendingHeader =
+    visiblePending.length > 0 ? (
+      <View className="gap-3 pb-3">
+        {visiblePending.map((row) => (
+          <PendingPaddleCard key={row.id} row={row} />
+        ))}
+      </View>
+    ) : null;
 
   if (feed.isPending) {
     return (
@@ -100,6 +186,7 @@ export default function FeedScreen() {
         keyExtractor={(item) => item.id}
         contentContainerClassName="gap-3 p-4"
         renderItem={({ item }) => <FeedCard item={item} />}
+        ListHeaderComponent={pendingHeader}
         refreshControl={
           <RefreshControl
             refreshing={feed.isFetching}

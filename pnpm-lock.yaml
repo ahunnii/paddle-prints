@@ -29,6 +29,9 @@ importers:
       '@paddle-prints/api':
         specifier: workspace:*
         version: link:../../packages/api
+      '@paddle-prints/offline-core':
+        specifier: workspace:*
+        version: link:../../packages/offline-core
       '@paddle-prints/recorder-core':
         specifier: workspace:*
         version: link:../../packages/recorder-core

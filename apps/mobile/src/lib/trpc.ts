@@ -5,7 +5,7 @@ import {
 } from "@tanstack/react-query";
 import { httpBatchLink, TRPCClientError } from "@trpc/client";
 import { createTRPCReact } from "@trpc/react-query";
-import type { inferRouterOutputs } from "@trpc/server";
+import type { inferRouterInputs, inferRouterOutputs } from "@trpc/server";
 import superjson from "superjson";
 
 import type { AppRouter } from "@paddle-prints/api";
@@ -20,6 +20,13 @@ export const api = createTRPCReact<AppRouter>();
  * Mirrors apps/web/src/trpc/react.tsx.
  */
 export type RouterOutputs = inferRouterOutputs<AppRouter>;
+
+/**
+ * Inference helper for inputs, e.g. `RouterInputs["paddles"]["create"]`. Mirrors `RouterOutputs`
+ * above; the offline queue types its stored rows from these so a queued row is a verbatim replay of
+ * the exact input tRPC validates.
+ */
+export type RouterInputs = inferRouterInputs<AppRouter>;
 
 /**
  * True for the specific tRPC error a protectedProcedure throws when the server session is gone
