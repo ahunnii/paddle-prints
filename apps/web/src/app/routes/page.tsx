@@ -3,7 +3,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { DownloadedBadge } from "~/components/offline/downloaded-badge";
-import { auth } from "~/server/auth";
+import { auth } from "@paddle-prints/auth";
 import { api } from "~/trpc/server";
 
 const METERS_PER_MILE = 1609.344;

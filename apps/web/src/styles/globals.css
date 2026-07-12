@@ -1,5 +1,8 @@
 @import "tailwindcss";
 
+/* Color scales below are mirrored in packages/tokens/src/index.ts for the
+   mobile app (NativeWind). If you change a value here, update it there too. */
+
 @theme {
   --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif,
     "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";

@@ -1,0 +1,23 @@
+{
+  "name": "@paddle-prints/recorder-core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./machine": "./src/machine.ts",
+    "./progress": "./src/progress.ts",
+    "./eta": "./src/eta.ts",
+    "./simplify": "./src/simplify.ts",
+    "./next-poi": "./src/next-poi.ts",
+    "./geo": "./src/geo.ts",
+    "./types": "./src/types.ts",
+    "./constants": "./src/constants.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.2"
+  }
+}

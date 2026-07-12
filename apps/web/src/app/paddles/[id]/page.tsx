@@ -6,7 +6,7 @@ import {
   PaddleSummaryResilient,
   type SummaryData,
 } from "~/components/paddles/paddle-summary-resilient";
-import { auth } from "~/server/auth";
+import { auth } from "@paddle-prints/auth";
 import { api } from "~/trpc/server";
 
 export default async function PaddleDetailPage({

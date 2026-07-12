@@ -1,0 +1,5 @@
+{
+  "extends": "../../tooling/typescript/base.json",
+  "include": ["src", "drizzle.config.ts", "migrate.mjs"],
+  "exclude": ["node_modules"]
+}

@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { FeedList } from "~/components/feed/feed-list";
 import { InstallNudge } from "~/components/offline/install-nudge";
 import { MeLink } from "~/components/offline/me-link";
-import { auth } from "~/server/auth";
+import { auth } from "@paddle-prints/auth";
 import { api } from "~/trpc/server";
 
 export default async function Home() {

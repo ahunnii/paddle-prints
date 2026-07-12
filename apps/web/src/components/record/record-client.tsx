@@ -7,9 +7,9 @@ import type { Map as MapLibreMap } from "maplibre-gl";
 
 import { useLiveQuery } from "dexie-react-hooks";
 
-import { nextPoiAhead, type CorridorPoi } from "~/lib/recorder/next-poi";
-import { simplifyTrack } from "~/lib/recorder/simplify";
-import type { RecorderState, TripType } from "~/lib/recorder/types";
+import { nextPoiAhead, type CorridorPoi } from "@paddle-prints/recorder-core/next-poi";
+import { simplifyTrack } from "@paddle-prints/recorder-core/simplify";
+import type { RecorderState, TripType } from "@paddle-prints/recorder-core/types";
 import {
   clearCheckpoint,
   readLiveCheckpoint,

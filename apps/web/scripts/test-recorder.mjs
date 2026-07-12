@@ -8,17 +8,17 @@
 //
 //   pnpm test:recorder
 // =============================================================================
-import { reducer, initialState } from "../src/lib/recorder/machine.ts";
+import { reducer, initialState } from "@paddle-prints/recorder-core/machine";
 import {
   buildProgressModel,
   createMatchState,
   matchProgress,
-} from "../src/lib/recorder/progress.ts";
-import { haversineM } from "../src/lib/recorder/geo.ts";
-import { simplifyTrack } from "../src/lib/recorder/simplify.ts";
-import { computeEta } from "../src/lib/recorder/eta.ts";
+} from "@paddle-prints/recorder-core/progress";
+import { haversineM } from "@paddle-prints/recorder-core/geo";
+import { simplifyTrack } from "@paddle-prints/recorder-core/simplify";
+import { computeEta } from "@paddle-prints/recorder-core/eta";
 import { checkpointStore } from "../src/lib/recorder/checkpoint.ts";
-import { nextPoiAhead } from "../src/lib/recorder/next-poi.ts";
+import { nextPoiAhead } from "@paddle-prints/recorder-core/next-poi";
 
 // ---------------------------------------------------------------------------
 // tiny test harness

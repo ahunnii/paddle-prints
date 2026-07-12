@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 
 import { CommunityMapClient } from "~/components/map/community-map-client";
 import { FloatingHeader } from "~/components/layout/floating-header";
-import { auth } from "~/server/auth";
+import { auth } from "@paddle-prints/auth";
 
 export default async function MapPage() {
   const session = await auth.api.getSession({ headers: await headers() });

@@ -1,0 +1,15 @@
+{
+  "name": "@paddle-prints/auth",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": { "typecheck": "tsc --noEmit" },
+  "dependencies": {
+    "@better-auth/expo": "^1.6.23",
+    "@paddle-prints/db": "workspace:*",
+    "better-auth": "^1.6.23",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": { "typescript": "^5.8.2" }
+}

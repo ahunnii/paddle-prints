@@ -2,7 +2,7 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 
 import { MeClient } from "~/components/me/me-client";
-import { auth } from "~/server/auth";
+import { auth } from "@paddle-prints/auth";
 import { api } from "~/trpc/server";
 
 export default async function MePage() {

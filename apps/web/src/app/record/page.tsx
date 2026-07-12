@@ -6,7 +6,7 @@ import {
   RecordClient,
   type RecordRoute,
 } from "~/components/record/record-client";
-import { auth } from "~/server/auth";
+import { auth } from "@paddle-prints/auth";
 import { api } from "~/trpc/server";
 
 /**

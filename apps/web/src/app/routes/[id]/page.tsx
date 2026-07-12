@@ -9,7 +9,7 @@ import { DownloadTripButton } from "~/components/offline/download-trip-button";
 import { RouteMap } from "~/components/routes/route-map";
 import { YourPaceCard } from "~/components/routes/your-pace-card";
 import { poiHeadline, poiMeta } from "~/lib/pois";
-import { auth } from "~/server/auth";
+import { auth } from "@paddle-prints/auth";
 import { api } from "~/trpc/server";
 
 const METERS_PER_MILE = 1609.344;

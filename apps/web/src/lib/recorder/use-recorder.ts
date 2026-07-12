@@ -16,9 +16,9 @@ import {
   isLiveCheckpoint,
   type Checkpoint,
 } from "./checkpoint";
-import { DEFAULT_HISTORICAL_SPEED_MPS, METERS_PER_MILE } from "./constants";
-import { computeEta, type EtaResult } from "./eta";
-import { initialState, reducer } from "./machine";
+import { DEFAULT_HISTORICAL_SPEED_MPS, METERS_PER_MILE } from "@paddle-prints/recorder-core/constants";
+import { computeEta, type EtaResult } from "@paddle-prints/recorder-core/eta";
+import { initialState, reducer } from "@paddle-prints/recorder-core/machine";
 import {
   buildProgressModel,
   createMatchState,
@@ -27,8 +27,8 @@ import {
   type MatchState,
   type ProgressModel,
   type ProgressResult,
-} from "./progress";
-import type { RecorderEvent, RecorderState, TripType } from "./types";
+} from "@paddle-prints/recorder-core/progress";
+import type { RecorderEvent, RecorderState, TripType } from "@paddle-prints/recorder-core/types";
 
 /** Side-effecting handles that must NOT live in reactive state. */
 interface Runtime {

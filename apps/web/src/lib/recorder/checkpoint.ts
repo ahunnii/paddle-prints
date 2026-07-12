@@ -11,8 +11,8 @@
  * once on mount) pulls the last persisted checkpoint back into the shadow after a reload.
  */
 import { db } from "../offline/db";
-import type { MatchState } from "./progress";
-import type { RecorderState, TripType } from "./types";
+import type { MatchState } from "@paddle-prints/recorder-core/progress";
+import type { RecorderState, TripType } from "@paddle-prints/recorder-core/types";
 
 const MAX_AGE_MS = 24 * 60 * 60 * 1000; // a checkpoint older than a day is not a live paddle
 
