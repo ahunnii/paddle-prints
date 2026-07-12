@@ -1,9 +1,19 @@
 import { useState } from "react";
-import { ActivityIndicator, Pressable, ScrollView, Text, View } from "react-native";
+import {
+  ActivityIndicator,
+  Pressable,
+  ScrollView,
+  Switch,
+  Text,
+  View,
+} from "react-native";
 import { useQueryClient } from "@tanstack/react-query";
+
+import { colors } from "@paddle-prints/tokens";
 
 import { authClient } from "../../lib/auth-client";
 import { formatSpeedMph } from "../../lib/format";
+import { useSettings } from "../../lib/settings/use-settings";
 import { api, type RouterOutputs } from "../../lib/trpc";
 
 type PaceStat = RouterOutputs["paddles"]["myStats"][number];
@@ -16,6 +26,8 @@ export default function MeScreen() {
   const { data: session } = authClient.useSession();
   const queryClient = useQueryClient();
   const stats = api.paddles.myStats.useQuery();
+  const sharePresence = useSettings((s) => s.sharePresence);
+  const setSharePresence = useSettings((s) => s.setSharePresence);
   const [signingOut, setSigningOut] = useState(false);
 
   async function handleSignOut() {
@@ -72,6 +84,29 @@ export default function MeScreen() {
             Log a paddle and your average pace will show up here.
           </Text>
         )}
+      </View>
+
+      <View className="gap-3 rounded-2xl bg-white p-4 shadow-sm">
+        <Text className="text-xs font-bold uppercase tracking-widest text-river-500">
+          Settings
+        </Text>
+        <View className="flex-row items-center gap-3">
+          <View className="flex-1">
+            <Text className="text-base font-semibold text-river-900">
+              Share live location
+            </Text>
+            <Text className="text-sm text-river-600">
+              Friends see you on the community map while you record
+            </Text>
+          </View>
+          <Switch
+            value={sharePresence}
+            onValueChange={setSharePresence}
+            trackColor={{ false: colors.river[200], true: colors.river[500] }}
+            thumbColor={sharePresence ? colors.sunset[400] : "#ffffff"}
+            ios_backgroundColor={colors.river[200]}
+          />
+        </View>
       </View>
 
       <Pressable

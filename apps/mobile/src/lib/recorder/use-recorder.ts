@@ -19,6 +19,7 @@ import * as Location from "expo-location";
 import type { LocationObject } from "expo-location";
 import { create } from "zustand";
 
+import { useSettings } from "../settings/use-settings";
 import { trpcVanilla } from "../trpc-vanilla";
 
 import {
@@ -265,10 +266,13 @@ export const useRecorder = create<RecorderStore>((set, get) => {
 
   /** Best-effort heartbeat of the current position, gated so it never disturbs a recording. */
   async function sendPresence() {
-    // TODO(share-presence): the mobile app has no settings store yet, so we always heartbeat. Gate
-    // this on a user-facing "share presence" setting once one exists (the web store checks
-    // `useSettings().sharePresence`). The web store also skips when `navigator.onLine` is false; RN
-    // has no such signal here and all errors are swallowed below, so we simply attempt the call.
+    // Gate on the user's "share live location" opt-in, read imperatively via getState() (matching the
+    // web recorder's `useSettings.getState().sharePresence`). When off, skip the heartbeat entirely --
+    // but finish()/discard() still call `presence.clear` regardless, since clearing your dot is
+    // privacy-positive; that mirrors the web recorder, which likewise only gates the heartbeat here.
+    if (!useSettings.getState().sharePresence) return;
+    // (Web additionally skips when `navigator.onLine` is false; RN has no equivalent signal on this
+    // path and all errors are swallowed below, so we simply attempt the call.)
     const s = get();
     const last = s.machine.track[s.machine.track.length - 1];
     const live =
