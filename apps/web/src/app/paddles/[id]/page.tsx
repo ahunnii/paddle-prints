@@ -46,6 +46,7 @@ export default async function PaddleDetailPage({
           (c) => [c[0], c[1]] as [number, number],
         ) ?? null,
       note: paddle.note,
+      difficulty: paddle.difficulty,
       isOwner: paddle.userId === session.user.id,
       pending: false,
       guestNames: paddle.guestNames,
