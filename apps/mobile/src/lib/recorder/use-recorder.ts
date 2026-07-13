@@ -136,6 +136,11 @@ interface RecorderStore {
   routeId: string | null;
   tripType: TripType;
   routeModel: ProgressModel | null;
+  /** The raw [lng,lat] coordinates passed to `configure()`, kept so the live nav map can draw the
+   * guidance line even when there's no queryable route behind it -- notably a retraced paddle, which
+   * configures with `routeId: null` (so `useRouteForRecording` yields no route) yet still has a line
+   * to follow. null for a free paddle. Cleared on discard. */
+  routeCoords: Array<[number, number]> | null;
   historicalSpeedMps: number;
 
   machine: RecorderState;
@@ -384,6 +389,7 @@ export const useRecorder = create<RecorderStore>((set, get) => {
     routeId: null,
     tripType: "river",
     routeModel: null,
+    routeCoords: null,
     historicalSpeedMps: DEFAULT_HISTORICAL_SPEED_MPS,
 
     machine: initialState(),
@@ -413,6 +419,7 @@ export const useRecorder = create<RecorderStore>((set, get) => {
         routeId: cfg.routeId,
         tripType: cfg.tripType,
         routeModel,
+        routeCoords: cfg.routeCoords,
         historicalSpeedMps:
           cfg.historicalSpeedMps ?? DEFAULT_HISTORICAL_SPEED_MPS,
         machine: initialState(),
@@ -496,6 +503,7 @@ export const useRecorder = create<RecorderStore>((set, get) => {
         progress: null,
         eta: null,
         gpsAccuracyM: null,
+        routeCoords: null,
       });
       // Best-effort: the 5-minute staleness filter is the real cleanup.
       void trpcVanilla.presence.clear.mutate().catch(() => undefined);

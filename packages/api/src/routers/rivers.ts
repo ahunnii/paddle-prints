@@ -372,6 +372,20 @@ export const riversRouter = createTRPCRouter({
       if (snapA.edge_id === snapB.edge_id) {
         const fa = snapA.fraction;
         const fb = snapB.fraction;
+
+        // Both taps land on (near enough) the same fraction of the same edge:
+        // ST_LineSubstring would degenerate to a Point instead of a LineString. Rather than a
+        // 500 from `finalize`'s gtype check, tell the paddler the same way we tell them their
+        // two points aren't connected -- NO_PATH's copy ("switch to waypoint mode" / different
+        // points) fits and needs no separate client handling.
+        if (Math.abs(fa - fb) < 1e-9) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: "NO_PATH",
+            cause: "Put-in and take-out snapped to the same point on the river",
+          });
+        }
+
         const sameEdge = (await ctx.db.execute(sql`
           WITH sub AS (
             SELECT

@@ -193,6 +193,37 @@ function usePaddleForRecording(paddleId: string | null | undefined): {
     { enabled },
   );
 
+  // Build the synthesized retrace route ONCE per fetched paddle, not once per render. This object is
+  // a dependency of SetupScreen's configure effect; a fresh literal on every render (e.g. each
+  // keystroke in the notes field, which re-renders the same component tree) would re-run configure()
+  // and wipe the recorder store's `note` back to "". Keying the memo on the stable React Query result
+  // reference keeps it referentially stable exactly the way the `?route=` path already is (it passes
+  // `byIdQuery.data` straight through). See usePaddleForRecording's doc comment for the shape.
+  const paddle = byIdQuery.data;
+  const route = useMemo<RecordingRoute | null>(() => {
+    if (!paddle) return null;
+    const coords = paddle.trackGeom?.coordinates;
+    // A track with fewer than 2 points can't be retraced -- resolves to null and the caller falls
+    // back to a free paddle.
+    if (!coords || coords.length < 2) return null;
+    return {
+      id: paddle.id,
+      name: `Retracing ${paddle.userName}'s paddle`,
+      type: paddle.tripType,
+      shape: "one_way",
+      geom: { type: "LineString", coordinates: coords },
+      distanceM: paddle.distanceM,
+      description: null,
+      difficulty: null,
+      flowLegs: null,
+      createdBy: paddle.userId,
+      createdAt: paddle.startedAt,
+      creatorName: paddle.userName,
+      pois: [],
+      paddles: [],
+    };
+  }, [paddle]);
+
   if (!enabled) {
     return {
       route: null,
@@ -221,39 +252,11 @@ function usePaddleForRecording(paddleId: string | null | undefined): {
     };
   }
 
-  const paddle = byIdQuery.data;
-  const coords = paddle.trackGeom?.coordinates;
-  if (!coords || coords.length < 2) {
-    // Not enough GPS data to retrace -- caller treats this as a free paddle.
-    return {
-      route: null,
-      etaSpeedMps: null,
-      source: "network",
-      isPending: false,
-      isError: false,
-    };
-  }
-
-  const route: RecordingRoute = {
-    id: paddle.id,
-    name: `Retracing ${paddle.userName}'s paddle`,
-    type: paddle.tripType,
-    shape: "one_way",
-    geom: { type: "LineString", coordinates: coords },
-    distanceM: paddle.distanceM,
-    description: null,
-    difficulty: null,
-    flowLegs: null,
-    createdBy: paddle.userId,
-    createdAt: paddle.startedAt,
-    creatorName: paddle.userName,
-    pois: [],
-    paddles: [],
-  };
-
+  // Success. `route` is null when the track had too few points to retrace (caller treats this as a
+  // free paddle); otherwise it's the stable memoized route above.
   return {
     route,
-    etaSpeedMps: paddle.avgSpeedMps ?? null,
+    etaSpeedMps: route ? (byIdQuery.data.avgSpeedMps ?? null) : null,
     source: "network",
     isPending: false,
     isError: false,
@@ -329,6 +332,13 @@ function ResumePrompt({
       // Crash-recovery is data-safety critical and can happen mid-offline-paddle: if the network is
       // unreachable, fall back to the downloaded route snapshot (lib/offline/trips) and only surface
       // the error when BOTH the fetch and the snapshot are unavailable.
+      //
+      // KNOWN LIMITATION (retrace): a retraced-paddle checkpoint stores `routeId: null` and no paddle
+      // id, so resuming after a full process death restores the trip data (track/distance/note) but
+      // NOT the retrace guidance line or on-route progress/ETA -- there's nothing here to re-fetch the
+      // source paddle's coords from, so `configure()` is skipped and `routeModel`/`routeCoords` stay
+      // empty. The paddle still records and saves correctly; only the live nav overlay is absent.
+      // Persisting the retrace coords in the checkpoint would fix it, but that's out of scope here.
       if (checkpoint.routeId) {
         let route: RecordingRoute;
         try {
@@ -749,6 +759,7 @@ function LiveScreen() {
   const eta = useRecorder((s) => s.eta);
   const routeModel = useRecorder((s) => s.routeModel);
   const routeId = useRecorder((s) => s.routeId);
+  const storeRouteCoords = useRecorder((s) => s.routeCoords);
   const gpsAccuracyM = useRecorder((s) => s.gpsAccuracyM);
   const geoError = useRecorder((s) => s.geoError);
   const lowAccuracyHint = useRecorder((s) => s.lowAccuracyHint);
@@ -790,9 +801,13 @@ function LiveScreen() {
   // in setup/finished) so the map's native surface isn't paid for outside the live phase.
   const lastPoint = machine.track[machine.track.length - 1];
   const livePos = lastPoint ? { lng: lastPoint.lng, lat: lastPoint.lat } : null;
-  const routeCoords = routeData?.geom.coordinates.map(
-    (c) => [c[0], c[1]] as [number, number],
-  ) ?? null;
+  // Guidance line for the nav map, in priority order: the queryable route data (a real route, which
+  // also carries POIs) -> the coords the recorder was configured with (the only source for a retraced
+  // paddle, whose `routeId` is null so `routeData` above is null) -> nothing (a free paddle).
+  const routeCoords =
+    routeData?.geom.coordinates.map((c) => [c[0], c[1]] as [number, number]) ??
+    storeRouteCoords ??
+    null;
   const snappedPos = progress && !progress.offRoute ? progress.snapped : null;
   // If this route's tiles were downloaded for offline use, render the nav map from the local
   // archive (zero network). Resolved once on mount -- a free paddle (no routeId) is always online.
@@ -958,11 +973,16 @@ function FinishedScreen({ freeTripType }: { freeTripType: TripType }) {
   const setNote = useRecorder((s) => s.setNote);
   const routeId = useRecorder((s) => s.routeId);
   const storeTripType = useRecorder((s) => s.tripType);
+  const routeModel = useRecorder((s) => s.routeModel);
   const discard = useRecorder((s) => s.discard);
-  // A routed paddle's tripType is authoritatively whatever `configure()` set from the route itself;
-  // a free paddle's is always hardcoded "river" in the store (see SetupScreen), so the user's actual
-  // toggle choice -- kept in RecordScreen's `freeTripType` -- is what actually goes on the record.
-  const tripType = routeId != null ? storeTripType : freeTripType;
+  // Whenever the recorder was configured from route geometry -- a real route OR a retraced paddle,
+  // both of which build a `routeModel` -- its tripType is authoritatively whatever `configure()` set
+  // (the route's / source paddle's type). Only a genuine free paddle has no `routeModel`, and its
+  // store tripType is always the hardcoded "river" default (see SetupScreen), so there the user's
+  // actual toggle choice -- kept in RecordScreen's `freeTripType` -- is what goes on the record.
+  // NB: `routeId` can't gate this -- a retrace deliberately configures with `routeId: null` (it isn't
+  // a saved route), which previously mislabeled every retraced waypoint paddle as a "river".
+  const tripType = routeModel != null ? storeTripType : freeTripType;
 
   const utils = api.useUtils();
   const paddleId = useRef<string | null>(null);

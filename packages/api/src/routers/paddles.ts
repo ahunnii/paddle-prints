@@ -190,20 +190,6 @@ export const paddlesRouter = createTRPCRouter({
         })
         .onConflictDoNothing({ target: paddles.id });
 
-      // Register co-paddlers. Dedupe and drop the owner's own id; ON CONFLICT DO NOTHING keeps
-      // idempotent replays from duplicating rows.
-      if (input.crewUserIds && input.crewUserIds.length > 0) {
-        const crewRows = [...new Set(input.crewUserIds)]
-          .filter((uid) => uid !== ctx.session.user.id)
-          .map((uid) => ({ paddleId: input.id, userId: uid }));
-        if (crewRows.length > 0) {
-          await ctx.db
-            .insert(paddleCrew)
-            .values(crewRows)
-            .onConflictDoNothing();
-        }
-      }
-
       const [row] = await ctx.db
         .select()
         .from(paddles)
@@ -215,10 +201,38 @@ export const paddlesRouter = createTRPCRouter({
           message: "Failed to save paddle",
         });
       }
-      // Only the owner may create/read back their just-saved paddle.
+      // Only the owner may create/read back their just-saved paddle. Check this BEFORE
+      // touching paddle_crew so crew rows never get attached to someone else's paddle id.
       if (row.userId !== ctx.session.user.id) {
         throw new TRPCError({ code: "FORBIDDEN" });
       }
+
+      // Register co-paddlers. Dedupe and drop the owner's own id; ON CONFLICT DO NOTHING keeps
+      // idempotent replays from duplicating rows. Also drop any id that isn't a real user --
+      // a deleted user or a corrupt offline-queue entry would otherwise FK-violate here, and
+      // since the client replays the same create forever, that 500 would permanently poison it.
+      if (input.crewUserIds && input.crewUserIds.length > 0) {
+        const candidateIds = [...new Set(input.crewUserIds)].filter(
+          (uid) => uid !== ctx.session.user.id,
+        );
+        if (candidateIds.length > 0) {
+          const existingUsers = await ctx.db
+            .select({ id: user.id })
+            .from(user)
+            .where(inArray(user.id, candidateIds));
+          const existingIds = new Set(existingUsers.map((u) => u.id));
+          const crewRows = candidateIds
+            .filter((uid) => existingIds.has(uid))
+            .map((uid) => ({ paddleId: input.id, userId: uid }));
+          if (crewRows.length > 0) {
+            await ctx.db
+              .insert(paddleCrew)
+              .values(crewRows)
+              .onConflictDoNothing();
+          }
+        }
+      }
+
       return row;
     }),
 

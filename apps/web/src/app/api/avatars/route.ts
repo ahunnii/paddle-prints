@@ -52,11 +52,21 @@ export async function POST(req: Request) {
   }
 
   const input = Buffer.from(await file.arrayBuffer());
-  const output = await sharp(input)
-    .rotate()
-    .resize(256, 256, { fit: "cover" })
-    .webp({ quality: 82 })
-    .toBuffer();
+  let output: Buffer;
+  try {
+    output = await sharp(input)
+      .rotate()
+      .resize(256, 256, { fit: "cover" })
+      .webp({ quality: 82 })
+      .toBuffer();
+  } catch {
+    // The content-type header is client-supplied; bytes that don't decode as an image are a bad
+    // request, not a server fault.
+    return NextResponse.json(
+      { error: "File is not a readable image" },
+      { status: 400 },
+    );
+  }
 
   const dir = path.join(env.UPLOADS_DIR, "avatars");
   await mkdir(dir, { recursive: true });

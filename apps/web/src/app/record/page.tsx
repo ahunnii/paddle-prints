@@ -56,7 +56,11 @@ export default async function RecordPage({
       };
     } catch (err) {
       // A bad/removed route id just falls back to a free paddle rather than erroring the page.
-      if (!(err instanceof TRPCError && err.code === "NOT_FOUND")) throw err;
+      // A non-uuid id surfaces as BAD_REQUEST from input validation -- same treatment.
+      const recoverable =
+        err instanceof TRPCError &&
+        (err.code === "NOT_FOUND" || err.code === "BAD_REQUEST");
+      if (!recoverable) throw err;
       redirect("/record");
     }
   } else if (paddleId) {
@@ -82,8 +86,11 @@ export default async function RecordPage({
       };
     } catch (err) {
       // A bad/removed paddle id (or one with no usable track) falls back to a free paddle, same as
-      // an invalid route id.
-      if (!(err instanceof TRPCError && err.code === "NOT_FOUND")) throw err;
+      // an invalid route id. Non-uuid ids surface as BAD_REQUEST from input validation.
+      const recoverable =
+        err instanceof TRPCError &&
+        (err.code === "NOT_FOUND" || err.code === "BAD_REQUEST");
+      if (!recoverable) throw err;
       redirect("/record");
     }
   }
