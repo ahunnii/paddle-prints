@@ -61,6 +61,7 @@ export default async function RouteDetailPage({
       <RouteMap
         geometry={route.geom}
         shape={route.shape}
+        flowLegs={route.flowLegs}
         pois={sortedPois.map((poi) => ({
           id: poi.id,
           category: poi.category,

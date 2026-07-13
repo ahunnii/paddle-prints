@@ -13,9 +13,12 @@ import { useRouter } from "next/navigation";
 import { useLiveQuery } from "dexie-react-hooks";
 
 import { CommentThread } from "~/components/paddles/comment-thread";
+import { PaddleDifficultyEditor } from "~/components/paddles/paddle-difficulty-editor";
 import { FloatingHeader } from "~/components/layout/floating-header";
+import type { FlowLeg } from "~/components/map/flow-arrow-layer";
 import { PaddleMap } from "~/components/paddles/paddle-map";
 import { ReactionBar } from "~/components/paddles/reaction-bar";
+import { DifficultyBadge } from "~/components/routes/difficulty-badge";
 import { Avatar } from "~/components/ui/avatar";
 import { toast } from "~/components/ui/toaster";
 import { useSession } from "~/lib/auth-client";
@@ -39,7 +42,11 @@ export interface SummaryData {
   avgSpeedMps: number;
   trackCoords: Array<[number, number]> | null;
   routeCoords: Array<[number, number]> | null;
+  /** Flow legs of the followed route, over metre ranges of `routeCoords`. Only set for a
+   * server-loaded paddle whose route is a river; null for pending/offline or routeless paddles. */
+  routeFlowLegs?: FlowLeg[] | null;
   note: string | null;
+  difficulty: string | null;
   isOwner: boolean;
   pending: boolean;
   /** Social fields (Phase 3). Only ever populated for server-loaded paddles -- a paddle still
@@ -95,6 +102,7 @@ export function PaddleSummaryResilient({
       trackCoords: input.trackGeom?.coordinates ?? null,
       routeCoords: trip?.route.coords ?? null,
       note: input.note ?? null,
+      difficulty: input.difficulty ?? null,
       isOwner: true,
       pending: true,
     };
@@ -155,6 +163,7 @@ export function PaddleSummaryResilient({
     <main className="relative h-dvh w-dvw">
       <PaddleMap
         routeCoords={data.routeCoords}
+        routeFlowLegs={data.routeFlowLegs ?? null}
         trackCoords={data.trackCoords}
         className="h-full w-full"
       />
@@ -195,6 +204,16 @@ export function PaddleSummaryResilient({
                 timeStyle: "short",
               })}
             </p>
+            <div className="mt-1">
+              {data.isOwner && !data.pending ? (
+                <PaddleDifficultyEditor
+                  paddleId={data.id}
+                  difficulty={data.difficulty}
+                />
+              ) : (
+                <DifficultyBadge difficulty={data.difficulty} />
+              )}
+            </div>
           </div>
 
           <div className="grid grid-cols-2 gap-2 text-sm">
@@ -203,6 +222,12 @@ export function PaddleSummaryResilient({
             <Cell label="Moving" value={formatElapsed(data.movingS)} />
             <Cell label="Avg speed" value={`${avgMph} mph`} />
           </div>
+
+          {data.pending && data.isOwner ? (
+            <div className="flex justify-end">
+              <DeletePaddleButton id={data.id} pending />
+            </div>
+          ) : null}
 
           {!data.pending ? (
             <>
@@ -213,10 +238,15 @@ export function PaddleSummaryResilient({
                   myReactions={data.myReactions ?? []}
                   variant="light"
                 />
-                <PinButton
-                  paddleId={data.id}
-                  pinnedByMe={data.pinnedByMe ?? false}
-                />
+                <div className="flex items-center gap-2">
+                  <PinButton
+                    paddleId={data.id}
+                    pinnedByMe={data.pinnedByMe ?? false}
+                  />
+                  {data.isOwner ? (
+                    <DeletePaddleButton id={data.id} pending={false} />
+                  ) : null}
+                </div>
               </div>
 
               <CrewRow crew={data.crew ?? []} guestNames={data.guestNames ?? []} />
@@ -279,6 +309,48 @@ function PinButton({
       }`}
     >
       {pinned ? "📌 Pinned" : "📌 Pin this paddle"}
+    </button>
+  );
+}
+
+/**
+ * Owner-only destructive delete. Confirms via native dialog, then removes the paddle -- through
+ * `paddles.delete` for an already-synced paddle, or by dropping its queued row for one still
+ * `pending` -- and navigates home.
+ */
+function DeletePaddleButton({ id, pending }: { id: string; pending: boolean }) {
+  const router = useRouter();
+  const utils = api.useUtils();
+  const [deleting, setDeleting] = useState(false);
+  const del = api.paddles.delete.useMutation();
+
+  async function handleDelete() {
+    if (!window.confirm("Delete this paddle? This can't be undone.")) return;
+    setDeleting(true);
+    try {
+      if (pending) {
+        await db().pendingPaddles.delete(id);
+      } else {
+        await del.mutateAsync({ id });
+        // Drop the cached feed so the deleted paddle can't flash back on the home list.
+        await utils.paddles.feed.invalidate();
+      }
+      toast("Paddle deleted");
+      router.push("/");
+    } catch {
+      toast("Couldn't delete the paddle. Try again.", "error");
+      setDeleting(false);
+    }
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={() => void handleDelete()}
+      disabled={deleting}
+      className="shrink-0 rounded-full border border-red-200 px-3 py-1.5 text-sm font-semibold text-red-600 transition-colors hover:bg-red-50 disabled:opacity-60"
+    >
+      {deleting ? "Deleting…" : "Delete"}
     </button>
   );
 }

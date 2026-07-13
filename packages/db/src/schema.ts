@@ -109,6 +109,7 @@ export const paddles = createTable(
     trackGeom: lineString("track_geom"),
     trackJson: jsonb("track_json"),
     note: text("note"),
+    difficulty: routeDifficulty("difficulty"),
     guestNames: jsonb("guest_names").$type<string[]>(),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },

@@ -8,6 +8,7 @@ import { length as turfLength } from "@turf/length";
 import { lineString as turfLineString } from "@turf/helpers";
 
 import { BaseMap, MICHIGAN_CENTER } from "~/components/map/base-map";
+import { FlowArrowLayer } from "~/components/map/flow-arrow-layer";
 import { PoiLayer, type PoiMapItem } from "~/components/map/poi-layer";
 import { FloatingHeader } from "~/components/layout/floating-header";
 import { DIFFICULTY_OPTIONS, type Difficulty } from "~/components/routes/difficulty-badge";
@@ -502,6 +503,12 @@ export function RouteBuilder() {
     <main className="relative h-dvh w-dvw">
       <BaseMap className="h-full w-full" onMap={setMap} />
       <PoiLayer map={map} pois={poiItems} />
+      {/* Flow arrows only exist in river mode -- waypoint routes carry no legs. */}
+      <FlowArrowLayer
+        map={map}
+        geometry={mode === "river" ? (riverData?.geometry ?? null) : null}
+        legs={mode === "river" ? riverData?.legs : null}
+      />
 
       {mode === "river" && riverQuery.isFetching ? (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">

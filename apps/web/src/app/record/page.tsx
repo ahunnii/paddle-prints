@@ -43,6 +43,8 @@ export default async function RecordPage({
         coords: r.geom.coordinates.map(
           (c) => [c[0], c[1]] as [number, number],
         ),
+        // Per-leg flow directions, measured against `r.geom` -- drives the nav-map arrows.
+        flowLegs: r.flowLegs ?? null,
         pois: r.pois.map((p) => ({
           id: p.id,
           category: p.category,

@@ -51,24 +51,33 @@ export function AvatarUploader({
   }
 
   return (
-    <div className="flex items-center gap-4">
-      <div className="relative shrink-0">
+    <div className="flex flex-col items-start gap-1">
+      <div
+        className="group relative shrink-0 cursor-pointer"
+        onClick={() => {
+          if (!uploading) inputRef.current?.click();
+        }}
+        role="button"
+        tabIndex={0}
+        title="Change photo"
+        aria-label="Change photo"
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            if (!uploading) inputRef.current?.click();
+          }
+        }}
+      >
         <Avatar name={name} image={preview ?? image} size="lg" />
+        {/* Hover overlay */}
+        <div className="absolute inset-0 hidden group-hover:flex items-center justify-center rounded-full bg-black/50">
+          <span className="text-2xl">📷</span>
+        </div>
         {uploading ? (
           <div className="absolute inset-0 flex items-center justify-center rounded-full bg-black/40">
             <span className="text-xs font-semibold text-white">…</span>
           </div>
         ) : null}
-      </div>
-      <div className="flex flex-col items-start gap-1">
-        <button
-          type="button"
-          disabled={uploading}
-          onClick={() => inputRef.current?.click()}
-          className="text-sunset-300 text-sm font-semibold underline disabled:opacity-60"
-        >
-          {uploading ? "Uploading…" : "Change photo"}
-        </button>
         <input
           ref={inputRef}
           type="file"
@@ -80,8 +89,8 @@ export function AvatarUploader({
             if (file) void handleFile(file);
           }}
         />
-        {error ? <p className="text-xs text-red-400">{error}</p> : null}
       </div>
+      {error ? <p className="text-xs text-red-400">{error}</p> : null}
     </div>
   );
 }

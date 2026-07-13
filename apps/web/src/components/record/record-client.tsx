@@ -19,9 +19,11 @@ import type { Checkpoint } from "~/lib/recorder/checkpoint";
 import { NAV_POI_CATEGORIES, poiMeta, truncateNote, type PoiCategory } from "~/lib/pois";
 import { db } from "~/lib/offline/db";
 import { queuePaddle, savePoiQueued, syncQueue } from "~/lib/offline/sync";
+import type { FlowLeg } from "~/components/map/flow-arrow-layer";
 import { NavMap } from "~/components/record/nav-map";
 import { NavPoiLayer, type NavPoi } from "~/components/record/nav-poi-layer";
 import { CrewPicker } from "~/components/record/crew-picker";
+import { DIFFICULTY_OPTIONS, type Difficulty } from "~/components/routes/difficulty-badge";
 import { PoiPlacement } from "~/components/map/poi-placement";
 import { toast } from "~/components/ui/toaster";
 import { api } from "~/trpc/react";
@@ -38,6 +40,9 @@ export interface RecordRoute {
   shape: "one_way" | "out_and_back";
   type: "river" | "waypoint";
   coords: Array<[number, number]>;
+  /** Per-leg flow directions over metre ranges of `coords`, for the nav-map arrows. Only saved
+   * river routes have these; a retraced paddle (`?paddle=`) or free paddle has none. */
+  flowLegs?: FlowLeg[] | null;
   pois: CorridorPoi[];
   /** The paddler's personal historical cruising speed for this route (see `routes.etaForUser`), fed
    * into the live ETA blend so it starts from a real number instead of the generic 3.0 mph default. */
@@ -69,6 +74,16 @@ interface Bbox {
   north: number;
 }
 
+// Selected-state pill colors for the finish sheet's difficulty picker -- brighter/translucent
+// variants of `DIFFICULTY_STYLES` (routes/difficulty-badge) tuned to read on the sheet's
+// near-black background instead of a white card.
+const DIFFICULTY_PILL_SELECTED: Record<Difficulty, string> = {
+  easy: "bg-emerald-500/30 text-emerald-200",
+  moderate: "bg-blue-500/30 text-blue-200",
+  challenging: "bg-amber-500/30 text-amber-200",
+  hard: "bg-red-500/30 text-red-200",
+};
+
 /** Is this category one of the safety-relevant ones the nav map draws markers for? */
 function isNavCategory(category: string): boolean {
   return (NAV_POI_CATEGORIES as string[]).includes(category);
@@ -89,6 +104,7 @@ function buildInput(
   note: string,
   crewUserIds: string[],
   guestNames: string[],
+  difficulty: Difficulty | null,
 ) {
   // Full fidelity into trackJson; ~10 m Douglas-Peucker into the stored geometry.
   const simplified = simplifyTrack(machine.track, 10);
@@ -111,6 +127,7 @@ function buildInput(
     note: note.trim().length > 0 ? note.trim() : null,
     crewUserIds: crewUserIds.length > 0 ? crewUserIds : undefined,
     guestNames: guestNames.length > 0 ? guestNames : undefined,
+    difficulty: difficulty ?? undefined,
   };
 }
 
@@ -153,6 +170,7 @@ export function RecordClient({ route }: { route: RecordRoute | null }) {
   const [showFinishSheet, setShowFinishSheet] = useState(false);
   const [crewUserIds, setCrewUserIds] = useState<string[]>([]);
   const [guestNames, setGuestNames] = useState<string[]>([]);
+  const [difficulty, setDifficulty] = useState<Difficulty | null>(null);
   const paddleId = useRef<string | null>(null);
 
   // Add-a-spot centers a crosshair over the map; save reads the map center and ALWAYS queues to
@@ -289,6 +307,7 @@ export function RecordClient({ route }: { route: RecordRoute | null }) {
       state.note,
       crewUserIds,
       guestNames,
+      difficulty,
     );
     await queuePaddle(input);
     clearCheckpoint();
@@ -299,7 +318,7 @@ export function RecordClient({ route }: { route: RecordRoute | null }) {
         : "Saved offline — will sync when online",
     );
     router.push(`/paddles/${input.id}`);
-  }, [route?.saveRouteId, tripType, router, crewUserIds, guestNames]);
+  }, [route?.saveRouteId, tripType, router, crewUserIds, guestNames, difficulty]);
 
   const confirmFinish = useCallback(() => {
     setShowFinishSheet(false);
@@ -551,6 +570,7 @@ export function RecordClient({ route }: { route: RecordRoute | null }) {
         <div className="relative flex-1 overflow-hidden">
           <NavMap
             routeCoords={route?.coords ?? null}
+            flowLegs={route?.flowLegs ?? null}
             livePos={livePos}
             snapped={progress?.snapped ?? null}
             headingDeg={headingDeg}
@@ -661,6 +681,28 @@ export function RecordClient({ route }: { route: RecordRoute | null }) {
             <p className="text-sm text-white/60">
               {distanceMi} mi · {formatElapsed(machine.elapsedS)}
             </p>
+
+            <div className="flex flex-col gap-2">
+              <span className="text-xs font-bold uppercase tracking-widest text-white/60">
+                Difficulty (optional)
+              </span>
+              <div className="flex flex-wrap gap-2">
+                {DIFFICULTY_OPTIONS.map((d) => (
+                  <button
+                    key={d}
+                    type="button"
+                    onClick={() => setDifficulty((cur) => (cur === d ? null : d))}
+                    className={`min-h-9 rounded-full px-3.5 text-sm font-bold capitalize ${
+                      difficulty === d
+                        ? DIFFICULTY_PILL_SELECTED[d]
+                        : "bg-white/10 text-white/60 active:bg-white/20"
+                    }`}
+                  >
+                    {d}
+                  </button>
+                ))}
+              </div>
+            </div>
 
             <CrewPicker
               selectedUserIds={crewUserIds}

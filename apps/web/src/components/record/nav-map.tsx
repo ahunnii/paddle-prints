@@ -1,15 +1,20 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import maplibregl, { type Map as MapLibreMap } from "maplibre-gl";
 
+import type { LineString } from "geojson";
+
 import { BaseMap } from "~/components/map/base-map";
+import { FlowArrowLayer, type FlowLeg } from "~/components/map/flow-arrow-layer";
 import { createBoardMarkerEl } from "~/lib/map/board-marker-el";
 import { useSettings } from "~/lib/settings/use-settings";
 
 interface NavMapProps {
   /** Route line to follow ([lng,lat] pairs), or null for a free paddle. */
   routeCoords: Array<[number, number]> | null;
+  /** Per-leg flow directions over metre ranges of `routeCoords` (saved river routes only). */
+  flowLegs?: FlowLeg[] | null;
   /** Latest GPS position. */
   livePos: { lng: number; lat: number } | null;
   /** Snapped-progress point along the route. */
@@ -33,6 +38,7 @@ const ROUTE_COLOR = "#4fb0cd"; // river-400 -- readable on the near-black nav ba
 /** The map shown in nav mode: the route line, a live position dot, and the snapped-progress dot. */
 export function NavMap({
   routeCoords,
+  flowLegs = null,
   livePos,
   snapped,
   headingDeg = null,
@@ -54,6 +60,15 @@ export function NavMap({
     setMap(m);
     onMap?.(m);
   };
+
+  // The flow legs are measured against the route line, so arrows only make sense when there is one.
+  const flowGeometry = useMemo<LineString | null>(
+    () =>
+      routeCoords && routeCoords.length >= 2
+        ? { type: "LineString", coordinates: routeCoords }
+        : null,
+    [routeCoords],
+  );
 
   useEffect(() => {
     if (!map) return;
@@ -145,6 +160,8 @@ export function NavMap({
         onMap={handleMap}
         className={className ?? "h-full w-full"}
       />
+
+      <FlowArrowLayer map={map} geometry={flowGeometry} legs={flowLegs} />
 
       {!follow && !followSuspended && livePos ? (
         <button

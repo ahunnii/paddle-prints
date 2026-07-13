@@ -50,6 +50,13 @@
       "when": 1783905628656,
       "tag": "0006_light_wither",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1783943742451,
+      "tag": "0007_deep_green_goblin",
+      "breakpoints": true
     }
   ]
 }

@@ -8,16 +8,18 @@
  * brief "Saved ✓" state (refetching the live queries so it never flickers out and back as the
  * server list catches up.
  *
- * An "All / My Teams" toggle switches between `paddles.feed({ filter: "all" })` (seeded from the
- * server-rendered `initial`, so it paints instantly) and `paddles.feed({ filter: "teams" })` (a
- * plain client fetch, only enabled once selected). Queued/local items are device-local and always
- * belong to the signed-in user, so they're merged into both views regardless of which is active.
+ * An "All / My Teams / Pinned" toggle switches between `paddles.feed({ filter: "all" })` (seeded
+ * from the server-rendered `initial`, so it paints instantly) and the `"teams"` / `"pinned"`
+ * variants (plain client fetches, only enabled once selected). Queued/local items are device-local
+ * and always belong to the signed-in user, so they're merged into every view regardless of which is
+ * active.
  */
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useLiveQuery } from "dexie-react-hooks";
 
 import { ReactionBar } from "~/components/paddles/reaction-bar";
+import { DifficultyBadge } from "~/components/routes/difficulty-badge";
 import { Avatar } from "~/components/ui/avatar";
 import { db } from "~/lib/offline/db";
 import { api, type RouterOutputs } from "~/trpc/react";
@@ -26,7 +28,7 @@ const METERS_PER_MILE = 1609.344;
 const MPS_TO_MPH = 2.2369363;
 
 type ServerRow = RouterOutputs["paddles"]["feed"][number];
-type FeedFilter = "all" | "teams";
+type FeedFilter = "all" | "teams" | "pinned";
 
 type SyncStatus = "syncing" | "failed" | "saved" | null;
 
@@ -49,6 +51,7 @@ interface FeedItem {
   commentCount: number;
   reactions: Record<string, number>;
   myReactions: string[];
+  difficulty: string | null;
 }
 
 /** Defensive accessor: `item` may come from a server row (has these fields) or a locally-queued
@@ -82,6 +85,7 @@ function serverRowToItem(r: ServerRow): FeedItem {
     commentCount: r.commentCount,
     reactions: r.reactions,
     myReactions: r.myReactions,
+    difficulty: r.difficulty,
   };
 }
 
@@ -96,10 +100,19 @@ export function FeedList({ initial }: { initial: ServerRow[] }) {
     { filter: "teams" },
     { enabled: filter === "teams" },
   );
+  const pinnedQuery = api.paddles.feed.useQuery(
+    { filter: "pinned" },
+    { enabled: filter === "pinned" },
+  );
 
   const serverRows: ServerRow[] =
-    filter === "all" ? allQuery.data : (teamsQuery.data ?? []);
+    filter === "all"
+      ? allQuery.data
+      : filter === "pinned"
+        ? (pinnedQuery.data ?? [])
+        : (teamsQuery.data ?? []);
   const teamsLoading = filter === "teams" && teamsQuery.isPending;
+  const pinnedLoading = filter === "pinned" && pinnedQuery.isPending;
 
   // The queued paddles on this device, mapped to feed items. Reactive: re-runs when the queue
   // changes (a paddle syncs and its row is deleted, or is dead-lettered).
@@ -123,6 +136,7 @@ export function FeedList({ initial }: { initial: ServerRow[] }) {
         commentCount: 0,
         reactions: {},
         myReactions: [],
+        difficulty: null,
       });
     }
     return items;
@@ -156,6 +170,7 @@ export function FeedList({ initial }: { initial: ServerRow[] }) {
       // Pull the live feeds so they pick up the freshly-synced paddle for real.
       void allQuery.refetch();
       if (filter === "teams") void teamsQuery.refetch();
+      if (filter === "pinned") void pinnedQuery.refetch();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingItems]);
@@ -206,16 +221,28 @@ export function FeedList({ initial }: { initial: ServerRow[] }) {
         >
           My Teams
         </FilterPill>
+        <FilterPill
+          active={filter === "pinned"}
+          onClick={() => setFilter("pinned")}
+        >
+          Pinned
+        </FilterPill>
       </div>
 
       {teamsLoading ? (
         <p className="text-river-300 px-1 text-sm">Loading your teams…</p>
+      ) : pinnedLoading ? (
+        <p className="text-river-300 px-1 text-sm">
+          Loading your pinned paddles…
+        </p>
       ) : merged.length === 0 ? (
         <div className="border-river-700 rounded-2xl border border-dashed p-6 text-center">
           <p className="text-river-200 text-sm">
             {filter === "teams"
               ? "No paddles from your teams yet."
-              : "No paddles logged yet. Pick a route and tap Start paddle to be first on the board."}
+              : filter === "pinned"
+                ? "No pinned paddles yet. Tap 📌 on a paddle to pin it."
+                : "No paddles logged yet. Pick a route and tap Start paddle to be first on the board."}
           </p>
         </div>
       ) : (
@@ -264,12 +291,15 @@ export function FeedList({ initial }: { initial: ServerRow[] }) {
                   <p className="text-river-200 mt-1 text-sm tabular-nums">
                     {miles} mi in {shortElapsed(p.elapsedS)} · avg {mph} mph
                   </p>
-                  <p className="text-river-400 mt-0.5 text-xs">
-                    {new Date(p.startedAt).toLocaleDateString([], {
-                      month: "short",
-                      day: "numeric",
-                    })}
-                  </p>
+                  <div className="mt-0.5 flex items-center gap-2">
+                    <p className="text-river-400 text-xs">
+                      {new Date(p.startedAt).toLocaleDateString([], {
+                        month: "short",
+                        day: "numeric",
+                      })}
+                    </p>
+                    <DifficultyBadge difficulty={p.difficulty} className="pointer-events-none" />
+                  </div>
 
                   {showFooter ? (
                     <div className="relative z-20 mt-2 flex items-center justify-between gap-2">

@@ -1,6 +1,6 @@
 import { TRPCError } from "@trpc/server";
 import { alias } from "drizzle-orm/pg-core";
-import { and, count, desc, eq, inArray, isNotNull, or, sql } from "drizzle-orm";
+import { and, count, desc, eq, inArray, isNotNull, ne, or, sql } from "drizzle-orm";
 import type { LineString } from "geojson";
 import { z } from "zod";
 
@@ -12,6 +12,7 @@ import {
   paddlePins,
   paddleReactions,
   paddles,
+  routeDifficulty,
   routeType,
   routes,
   teamMembers,
@@ -160,6 +161,7 @@ export const paddlesRouter = createTRPCRouter({
         // Optional/nullable and MUST stay that way: paddles already queued in a client's
         // IndexedDB from before this field existed will replay without it.
         note: z.string().trim().max(2000).nullable().optional(),
+        difficulty: z.enum(routeDifficulty.enumValues).nullable().optional(),
         // Phase 3 social fields -- also optional so pre-existing queued rows replay cleanly.
         crewUserIds: z.array(z.string()).max(20).optional(),
         guestNames: z.array(z.string().trim().min(1).max(80)).max(20).optional(),
@@ -180,6 +182,7 @@ export const paddlesRouter = createTRPCRouter({
           avgSpeedMps: input.avgSpeedMps,
           trackJson: input.trackJson,
           note: input.note && input.note.length > 0 ? input.note : null,
+          difficulty: input.difficulty ?? null,
           guestNames:
             input.guestNames && input.guestNames.length > 0
               ? input.guestNames
@@ -243,25 +246,29 @@ export const paddlesRouter = createTRPCRouter({
    */
   feed: protectedProcedure
     .input(
-      z.object({ filter: z.enum(["all", "teams"]).optional() }).optional(),
+      z
+        .object({ filter: z.enum(["all", "teams", "pinned"]).optional() })
+        .optional(),
     )
     .query(async ({ ctx, input }) => {
       const me = ctx.session.user.id;
 
-      let teamFilter = undefined;
+      let feedFilter = undefined;
       if (input?.filter === "teams") {
-        // Everyone who shares at least one team with me (includes me if I'm in any team).
+        // Everyone who shares at least one team with me, EXCLUDING me: this filter is about
+        // teammates' activity, so my own solo paddles shouldn't appear. A teammate's paddle I
+        // crewed still shows -- it matches the teammate's ownership.
         const tmMine = alias(teamMembers, "tm_mine");
         const tmPeer = alias(teamMembers, "tm_peer");
         const teammateRows = await ctx.db
           .selectDistinct({ userId: tmPeer.userId })
           .from(tmMine)
           .innerJoin(tmPeer, eq(tmMine.teamId, tmPeer.teamId))
-          .where(eq(tmMine.userId, me));
+          .where(and(eq(tmMine.userId, me), ne(tmPeer.userId, me)));
         const teammateIds = teammateRows.map((r) => r.userId);
         if (teammateIds.length === 0) return [];
 
-        teamFilter = or(
+        feedFilter = or(
           inArray(paddles.userId, teammateIds),
           inArray(
             paddles.id,
@@ -270,6 +277,15 @@ export const paddlesRouter = createTRPCRouter({
               .from(paddleCrew)
               .where(inArray(paddleCrew.userId, teammateIds)),
           ),
+        );
+      } else if (input?.filter === "pinned") {
+        // Only paddles the signed-in user has pinned.
+        feedFilter = inArray(
+          paddles.id,
+          ctx.db
+            .select({ id: paddlePins.paddleId })
+            .from(paddlePins)
+            .where(eq(paddlePins.userId, me)),
         );
       }
 
@@ -282,6 +298,7 @@ export const paddlesRouter = createTRPCRouter({
           movingS: paddles.movingS,
           distanceM: paddles.distanceM,
           avgSpeedMps: paddles.avgSpeedMps,
+          difficulty: paddles.difficulty,
           userId: paddles.userId,
           userName: user.name,
           userImage: user.image,
@@ -292,7 +309,7 @@ export const paddlesRouter = createTRPCRouter({
         .from(paddles)
         .innerJoin(user, eq(paddles.userId, user.id))
         .leftJoin(routes, eq(paddles.routeId, routes.id))
-        .where(teamFilter)
+        .where(feedFilter)
         .orderBy(desc(paddles.startedAt))
         .limit(30);
 
@@ -330,6 +347,7 @@ export const paddlesRouter = createTRPCRouter({
           avgSpeedMps: paddles.avgSpeedMps,
           trackGeom: paddles.trackGeom,
           note: paddles.note,
+          difficulty: paddles.difficulty,
           guestNames: paddles.guestNames,
           userName: user.name,
           userImage: user.image,
@@ -337,6 +355,7 @@ export const paddlesRouter = createTRPCRouter({
           routeName: routes.name,
           routeShape: routes.shape,
           routeGeom: routes.geom,
+          routeFlowLegs: routes.flowLegs,
         })
         .from(paddles)
         .innerJoin(user, eq(paddles.userId, user.id))
@@ -390,6 +409,49 @@ export const paddlesRouter = createTRPCRouter({
         throw new TRPCError({ code: "NOT_FOUND", message: "Paddle not found" });
       }
       return row;
+    }),
+
+  /** Set (or clear) the difficulty on an already-saved paddle. Owner-only. */
+  updatePaddleDifficulty: protectedProcedure
+    .input(
+      z.object({
+        id: z.string().uuid(),
+        difficulty: z.enum(routeDifficulty.enumValues).nullable(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const [row] = await ctx.db
+        .update(paddles)
+        .set({ difficulty: input.difficulty })
+        .where(
+          and(
+            eq(paddles.id, input.id),
+            eq(paddles.userId, ctx.session.user.id),
+          ),
+        )
+        .returning({ id: paddles.id, difficulty: paddles.difficulty });
+
+      if (!row) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Paddle not found" });
+      }
+      return row;
+    }),
+
+  /** Permanently delete a paddle. Owner-only; child rows cascade away via their FKs. */
+  delete: protectedProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const rows = await ctx.db
+        .delete(paddles)
+        .where(
+          and(
+            eq(paddles.id, input.id),
+            eq(paddles.userId, ctx.session.user.id),
+          ),
+        )
+        .returning({ id: paddles.id });
+
+      return { deleted: rows.length > 0 };
     }),
 
   /**

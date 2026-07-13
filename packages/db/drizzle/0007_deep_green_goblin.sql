@@ -1,0 +1,1 @@
+ALTER TABLE "paddle-prints_paddles" ADD COLUMN "difficulty" "route_difficulty";

@@ -5,12 +5,15 @@ import maplibregl, { type Map as MapLibreMap } from "maplibre-gl";
 import type { LineString } from "geojson";
 
 import { BaseMap } from "~/components/map/base-map";
+import { FlowArrowLayer, type FlowLeg } from "~/components/map/flow-arrow-layer";
 import { PoiLayer, type PoiMapItem } from "~/components/map/poi-layer";
 import { addGeolocateControl } from "~/lib/map/geolocate-control";
 
 interface RouteMapProps {
   geometry: LineString;
   shape: "one_way" | "out_and_back";
+  /** Per-leg flow directions over metre ranges of `geometry` (river routes only). */
+  flowLegs?: FlowLeg[] | null;
   pois?: PoiMapItem[];
   className?: string;
 }
@@ -18,7 +21,7 @@ interface RouteMapProps {
 const ROUTE_LINE_SOURCE = "route-detail-line";
 const ROUTE_LINE_COLOR = "#1f7796"; // river-600
 
-export function RouteMap({ geometry, shape, pois, className }: RouteMapProps) {
+export function RouteMap({ geometry, shape, flowLegs = null, pois, className }: RouteMapProps) {
   const [map, setMap] = useState<MapLibreMap | null>(null);
 
   useEffect(() => {
@@ -73,6 +76,7 @@ export function RouteMap({ geometry, shape, pois, className }: RouteMapProps) {
   return (
     <>
       <BaseMap onMap={setMap} className={className ?? "h-full w-full"} />
+      <FlowArrowLayer map={map} geometry={geometry} legs={flowLegs} />
       <PoiLayer map={map} pois={pois ?? []} />
     </>
   );
