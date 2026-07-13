@@ -320,6 +320,7 @@ function PinButton({
  */
 function DeletePaddleButton({ id, pending }: { id: string; pending: boolean }) {
   const router = useRouter();
+  const utils = api.useUtils();
   const [deleting, setDeleting] = useState(false);
   const del = api.paddles.delete.useMutation();
 
@@ -331,6 +332,8 @@ function DeletePaddleButton({ id, pending }: { id: string; pending: boolean }) {
         await db().pendingPaddles.delete(id);
       } else {
         await del.mutateAsync({ id });
+        // Drop the cached feed so the deleted paddle can't flash back on the home list.
+        await utils.paddles.feed.invalidate();
       }
       toast("Paddle deleted");
       router.push("/");

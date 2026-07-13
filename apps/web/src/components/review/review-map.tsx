@@ -37,6 +37,20 @@ const TRACK_WIDTH: ExpressionSpecification = [
   16,
   7,
 ];
+// The white casing must stay ~3px wider than the colored line at every zoom, else it vanishes
+// under the line -- which happened precisely in the single-track case (fitted at maxZoom 15, where
+// the line is ~6.5px, a fixed 6px casing was fully covered).
+const CASING_WIDTH: ExpressionSpecification = [
+  "interpolate",
+  ["linear"],
+  ["zoom"],
+  8,
+  6,
+  12,
+  8,
+  16,
+  10,
+];
 
 interface ReviewMapProps {
   tracks: ReviewTrack[];
@@ -73,7 +87,7 @@ export function ReviewMap({ tracks, className, onMap }: ReviewMapProps) {
           type: "line",
           source: TRACKS_SOURCE,
           layout: { "line-cap": "round", "line-join": "round" },
-          paint: { "line-color": "#ffffff", "line-width": 6, "line-opacity": 0.9 },
+          paint: { "line-color": "#ffffff", "line-width": CASING_WIDTH, "line-opacity": 0.9 },
         });
         map.addLayer({
           id: TRACK_LINE_LAYER,

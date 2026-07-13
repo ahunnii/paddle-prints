@@ -127,6 +127,19 @@ export function FlowArrowLayer({ map, geometry, legs }: FlowArrowLayerProps) {
     if (!map) return;
     let cancelled = false;
 
+    // Lift our tint + arrow layers to the very top. Host maps add their own route/track line
+    // AFTER this overlay (React runs child effects before parent effects), and may re-add it later
+    // (HMR, style reloads), so without this the arrows paint underneath the opaque route line and
+    // are invisible. Idempotent + guarded: it no-ops once the arrow layer is already topmost, so the
+    // persistent `idle` listener below settles immediately without a repaint loop.
+    const raise = () => {
+      if (cancelled) return;
+      const layers = map.getStyle().layers;
+      if (layers[layers.length - 1]?.id === ARROW_LAYER_ID) return; // already on top
+      if (map.getLayer(LINE_LAYER_ID)) map.moveLayer(LINE_LAYER_ID);
+      if (map.getLayer(ARROW_LAYER_ID)) map.moveLayer(ARROW_LAYER_ID);
+    };
+
     const apply = () => {
       if (cancelled) return;
       const data = buildFeatureCollection(geometry, legs);
@@ -134,6 +147,7 @@ export function FlowArrowLayer({ map, geometry, legs }: FlowArrowLayerProps) {
       const existing = map.getSource(SOURCE_ID) as GeoJSONSource | undefined;
       if (existing) {
         existing.setData(data);
+        raise();
         return;
       }
 
@@ -179,7 +193,7 @@ export function FlowArrowLayer({ map, geometry, legs }: FlowArrowLayerProps) {
           "symbol-spacing": 60,
           "icon-allow-overlap": true,
           "icon-rotate": ["match", ["get", "direction"], "upstream", 180, 0],
-          "icon-size": 0.6,
+          "icon-size": 1.4,
         },
         paint: {
           "icon-opacity": [
@@ -193,12 +207,19 @@ export function FlowArrowLayer({ map, geometry, legs }: FlowArrowLayerProps) {
       });
     };
 
-    if (map.isStyleLoaded()) apply();
+    // A ready source can be patched (setData) at any time; only the initial add needs the style
+    // ready. Gating a source-update behind "load" (which fires once) would silently drop leg/geometry
+    // changes that arrive later -- realistic in the route builder, where legs change per river query.
+    if (map.getSource(SOURCE_ID) || map.isStyleLoaded()) apply();
     else map.once("load", apply);
+    // Keep the arrows on top even if the host re-adds its route line later. `raise` no-ops once
+    // they're topmost, so this listener settles without churning.
+    map.on("idle", raise);
 
     return () => {
       cancelled = true;
       map.off("load", apply);
+      map.off("idle", raise);
     };
   }, [map, geometry, legs]);
 

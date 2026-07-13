@@ -54,7 +54,9 @@ export function AvatarUploader({
     <div className="flex flex-col items-start gap-1">
       <div
         className="group relative shrink-0 cursor-pointer"
-        onClick={() => inputRef.current?.click()}
+        onClick={() => {
+          if (!uploading) inputRef.current?.click();
+        }}
         role="button"
         tabIndex={0}
         title="Change photo"
@@ -62,7 +64,7 @@ export function AvatarUploader({
         onKeyDown={(e) => {
           if (e.key === "Enter" || e.key === " ") {
             e.preventDefault();
-            inputRef.current?.click();
+            if (!uploading) inputRef.current?.click();
           }
         }}
       >
