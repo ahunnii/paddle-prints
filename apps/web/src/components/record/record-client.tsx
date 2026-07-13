@@ -19,6 +19,7 @@ import type { Checkpoint } from "~/lib/recorder/checkpoint";
 import { NAV_POI_CATEGORIES, poiMeta, truncateNote, type PoiCategory } from "~/lib/pois";
 import { db } from "~/lib/offline/db";
 import { queuePaddle, savePoiQueued, syncQueue } from "~/lib/offline/sync";
+import type { FlowLeg } from "~/components/map/flow-arrow-layer";
 import { NavMap } from "~/components/record/nav-map";
 import { NavPoiLayer, type NavPoi } from "~/components/record/nav-poi-layer";
 import { CrewPicker } from "~/components/record/crew-picker";
@@ -39,6 +40,9 @@ export interface RecordRoute {
   shape: "one_way" | "out_and_back";
   type: "river" | "waypoint";
   coords: Array<[number, number]>;
+  /** Per-leg flow directions over metre ranges of `coords`, for the nav-map arrows. Only saved
+   * river routes have these; a retraced paddle (`?paddle=`) or free paddle has none. */
+  flowLegs?: FlowLeg[] | null;
   pois: CorridorPoi[];
   /** The paddler's personal historical cruising speed for this route (see `routes.etaForUser`), fed
    * into the live ETA blend so it starts from a real number instead of the generic 3.0 mph default. */
@@ -566,6 +570,7 @@ export function RecordClient({ route }: { route: RecordRoute | null }) {
         <div className="relative flex-1 overflow-hidden">
           <NavMap
             routeCoords={route?.coords ?? null}
+            flowLegs={route?.flowLegs ?? null}
             livePos={livePos}
             snapped={progress?.snapped ?? null}
             headingDeg={headingDeg}

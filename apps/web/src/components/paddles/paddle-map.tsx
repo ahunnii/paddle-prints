@@ -1,9 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import maplibregl, { type Map as MapLibreMap } from "maplibre-gl";
+import type { LineString } from "geojson";
 
 import { BaseMap } from "~/components/map/base-map";
+import { FlowArrowLayer, type FlowLeg } from "~/components/map/flow-arrow-layer";
 import { PoiLayer, type PoiMapItem } from "~/components/map/poi-layer";
 import { addGeolocateControl } from "~/lib/map/geolocate-control";
 import { api } from "~/trpc/react";
@@ -11,6 +13,8 @@ import { api } from "~/trpc/react";
 interface PaddleMapProps {
   /** The route the paddle followed, drawn underneath in river blue. */
   routeCoords: Array<[number, number]> | null;
+  /** Per-leg flow directions of that route, over metre ranges of `routeCoords`. */
+  routeFlowLegs?: FlowLeg[] | null;
   /** The actual recorded track, drawn on top in sunset orange. */
   trackCoords: Array<[number, number]> | null;
   className?: string;
@@ -29,7 +33,12 @@ const ROUTE_COLOR = "#1f7796"; // river-600
 const TRACK_COLOR = "#f97316"; // sunset-500
 
 /** Summary map: the recorded track over the planned route, framed to the track. */
-export function PaddleMap({ routeCoords, trackCoords, className }: PaddleMapProps) {
+export function PaddleMap({
+  routeCoords,
+  routeFlowLegs = null,
+  trackCoords,
+  className,
+}: PaddleMapProps) {
   const [map, setMap] = useState<MapLibreMap | null>(null);
   // This map is fitted-once-and-static (no pan/zoom-driven `moveend` like the community map), so
   // POIs are fetched a single time for whatever bbox `fitBounds` settles on below -- not refetched.
@@ -118,9 +127,19 @@ export function PaddleMap({ routeCoords, trackCoords, className }: PaddleMapProp
     createdAt: p.createdAt,
   }));
 
+  // Flow arrows follow the planned route line (river routes only).
+  const flowGeometry = useMemo<LineString | null>(
+    () =>
+      routeCoords && routeCoords.length >= 2
+        ? { type: "LineString", coordinates: routeCoords }
+        : null,
+    [routeCoords],
+  );
+
   return (
     <>
       <BaseMap onMap={setMap} className={className ?? "h-full w-full"} />
+      <FlowArrowLayer map={map} geometry={flowGeometry} legs={routeFlowLegs} />
       <PoiLayer map={map} pois={poiItems} />
     </>
   );

@@ -355,6 +355,7 @@ export const paddlesRouter = createTRPCRouter({
           routeName: routes.name,
           routeShape: routes.shape,
           routeGeom: routes.geom,
+          routeFlowLegs: routes.flowLegs,
         })
         .from(paddles)
         .innerJoin(user, eq(paddles.userId, user.id))

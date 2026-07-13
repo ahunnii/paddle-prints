@@ -45,6 +45,7 @@ export default async function PaddleDetailPage({
         paddle.routeGeom?.coordinates.map(
           (c) => [c[0], c[1]] as [number, number],
         ) ?? null,
+      routeFlowLegs: paddle.routeFlowLegs ?? null,
       note: paddle.note,
       difficulty: paddle.difficulty,
       isOwner: paddle.userId === session.user.id,

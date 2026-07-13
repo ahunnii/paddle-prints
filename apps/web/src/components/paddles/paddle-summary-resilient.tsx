@@ -15,6 +15,7 @@ import { useLiveQuery } from "dexie-react-hooks";
 import { CommentThread } from "~/components/paddles/comment-thread";
 import { PaddleDifficultyEditor } from "~/components/paddles/paddle-difficulty-editor";
 import { FloatingHeader } from "~/components/layout/floating-header";
+import type { FlowLeg } from "~/components/map/flow-arrow-layer";
 import { PaddleMap } from "~/components/paddles/paddle-map";
 import { ReactionBar } from "~/components/paddles/reaction-bar";
 import { DifficultyBadge } from "~/components/routes/difficulty-badge";
@@ -41,6 +42,9 @@ export interface SummaryData {
   avgSpeedMps: number;
   trackCoords: Array<[number, number]> | null;
   routeCoords: Array<[number, number]> | null;
+  /** Flow legs of the followed route, over metre ranges of `routeCoords`. Only set for a
+   * server-loaded paddle whose route is a river; null for pending/offline or routeless paddles. */
+  routeFlowLegs?: FlowLeg[] | null;
   note: string | null;
   difficulty: string | null;
   isOwner: boolean;
@@ -159,6 +163,7 @@ export function PaddleSummaryResilient({
     <main className="relative h-dvh w-dvw">
       <PaddleMap
         routeCoords={data.routeCoords}
+        routeFlowLegs={data.routeFlowLegs ?? null}
         trackCoords={data.trackCoords}
         className="h-full w-full"
       />
