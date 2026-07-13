@@ -54,9 +54,15 @@ export default async function Home() {
           </Link>
           <Link
             href="/record"
-            className="border-river-300 text-river-100 hover:bg-river-800 active:bg-river-800 active:scale-[0.97] col-span-2 flex items-center justify-center rounded-full border px-4 py-2 text-center text-sm font-semibold transition-colors"
+            className="border-river-300 text-river-100 hover:bg-river-800 active:bg-river-800 active:scale-[0.97] flex items-center justify-center rounded-full border px-4 py-2 text-center text-sm font-semibold transition-colors"
           >
             ⏺️ Quick Start Paddle
+          </Link>
+          <Link
+            href="/review"
+            className="border-river-300 text-river-100 hover:bg-river-800 active:bg-river-800 active:scale-[0.97] flex items-center justify-center rounded-full border px-4 py-2 text-center text-sm font-semibold transition-colors"
+          >
+            🏆 Paddle in Review
           </Link>
         </div>
 

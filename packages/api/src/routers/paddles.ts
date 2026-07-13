@@ -1,6 +1,7 @@
 import { TRPCError } from "@trpc/server";
 import { alias } from "drizzle-orm/pg-core";
-import { and, count, desc, eq, inArray, or } from "drizzle-orm";
+import { and, count, desc, eq, inArray, isNotNull, or, sql } from "drizzle-orm";
+import type { LineString } from "geojson";
 import { z } from "zod";
 
 import { createTRPCRouter, protectedProcedure } from "../trpc";
@@ -52,6 +53,18 @@ function ownedOrCrewedByMe(db: Db, meId: string) {
         .where(eq(paddleCrew.userId, meId)),
     ),
   );
+}
+
+/**
+ * A monotonic integer uniquely identifying the ISO-8601 week that `d` falls in. Consecutive ISO
+ * weeks differ by exactly 1, so streaks can be walked by decrementing. Derived from the Thursday of
+ * the week (ISO's week-defining day) in UTC.
+ */
+function isoWeekIndex(d: Date): number {
+  const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  const dayNum = (date.getUTCDay() + 6) % 7; // Mon=0 .. Sun=6
+  date.setUTCDate(date.getUTCDate() - dayNum + 3); // shift to this week's Thursday
+  return Math.round(date.getTime() / (7 * 24 * 60 * 60 * 1000));
 }
 
 /** The per-paddle social counters attached to feed/byId rows. */
@@ -411,4 +424,164 @@ export const paddlesRouter = createTRPCRouter({
       .where(ownedOrCrewedByMe(ctx.db, ctx.session.user.id))
       .orderBy(desc(paddles.startedAt));
   }),
+
+  /**
+   * "Paddle in Review" stats for the signed-in user, over the same widened scope as `mine`/`myStats`
+   * (paddles they own OR were registered as crew on). `years` and `currentStreakWeeks` are always
+   * all-time; everything else is scoped to `year` (calendar year of `startedAt`) when supplied.
+   */
+  review: protectedProcedure
+    .input(
+      z
+        .object({ year: z.number().int().min(2000).max(2100).optional() })
+        .optional(),
+    )
+    .query(async ({ ctx, input }) => {
+      const me = ctx.session.user.id;
+      const scope = ownedOrCrewedByMe(ctx.db, me);
+
+      // All-time scoped rows -- reduced in JS the way `myStats` does. `years` and the streak read
+      // the full list; the year filter is applied in JS so the filtered set drives `tracks` too.
+      const rowsAll = await ctx.db
+        .select({
+          id: paddles.id,
+          distanceM: paddles.distanceM,
+          elapsedS: paddles.elapsedS,
+          avgSpeedMps: paddles.avgSpeedMps,
+          startedAt: paddles.startedAt,
+          routeName: routes.name,
+        })
+        .from(paddles)
+        .leftJoin(routes, eq(paddles.routeId, routes.id))
+        .where(scope)
+        .orderBy(desc(paddles.startedAt));
+
+      // Distinct calendar years with >=1 paddle, desc -- all-time regardless of the filter.
+      const years = [
+        ...new Set(rowsAll.map((r) => r.startedAt.getFullYear())),
+      ].sort((a, b) => b - a);
+
+      // Consecutive ISO weeks ending at the current week -- or the previous week if this week has no
+      // paddle yet (a streak stays "alive" until a whole week passes with none). All-time.
+      const weekSet = new Set(rowsAll.map((r) => isoWeekIndex(r.startedAt)));
+      const nowWeek = isoWeekIndex(new Date());
+      let currentStreakWeeks = 0;
+      let cursor = weekSet.has(nowWeek)
+        ? nowWeek
+        : weekSet.has(nowWeek - 1)
+          ? nowWeek - 1
+          : null;
+      while (cursor !== null && weekSet.has(cursor)) {
+        currentStreakWeeks++;
+        cursor--;
+      }
+
+      // Filtered scope for totals/longest/fastest/mostActiveMonth/tracks.
+      const filtered =
+        input?.year === undefined
+          ? rowsAll
+          : rowsAll.filter((r) => r.startedAt.getFullYear() === input.year);
+
+      const paddleCount = filtered.length;
+      const distanceM = filtered.reduce((s, r) => s + r.distanceM, 0);
+      const elapsedS = filtered.reduce((s, r) => s + r.elapsedS, 0);
+      const totals = {
+        paddles: paddleCount,
+        distanceM,
+        elapsedS,
+        avgDistanceM: paddleCount === 0 ? 0 : distanceM / paddleCount,
+        avgElapsedS: paddleCount === 0 ? 0 : elapsedS / paddleCount,
+      };
+
+      let longest: {
+        id: string;
+        distanceM: number;
+        routeName: string | null;
+        startedAt: Date;
+      } | null = null;
+      for (const r of filtered) {
+        if (!longest || r.distanceM > longest.distanceM) {
+          longest = {
+            id: r.id,
+            distanceM: r.distanceM,
+            routeName: r.routeName,
+            startedAt: r.startedAt,
+          };
+        }
+      }
+
+      // Fastest by avg speed, but ignore sub-0.2mi records where a few noisy GPS points can produce
+      // an absurd average speed.
+      const MIN_FASTEST_DISTANCE_M = 0.2 * 1609.344;
+      let fastest: {
+        id: string;
+        avgSpeedMps: number;
+        routeName: string | null;
+        startedAt: Date;
+      } | null = null;
+      for (const r of filtered) {
+        if (r.distanceM < MIN_FASTEST_DISTANCE_M) continue;
+        if (!fastest || r.avgSpeedMps > fastest.avgSpeedMps) {
+          fastest = {
+            id: r.id,
+            avgSpeedMps: r.avgSpeedMps,
+            routeName: r.routeName,
+            startedAt: r.startedAt,
+          };
+        }
+      }
+
+      // Busiest "YYYY-MM" within the filtered scope. Ties resolve to the more recent month.
+      const monthCounts = new Map<string, number>();
+      for (const r of filtered) {
+        const key = `${r.startedAt.getFullYear()}-${String(
+          r.startedAt.getMonth() + 1,
+        ).padStart(2, "0")}`;
+        monthCounts.set(key, (monthCounts.get(key) ?? 0) + 1);
+      }
+      let mostActiveMonth: { month: string; count: number } | null = null;
+      for (const [month, count] of monthCounts) {
+        if (
+          !mostActiveMonth ||
+          count > mostActiveMonth.count ||
+          (count === mostActiveMonth.count && month > mostActiveMonth.month)
+        ) {
+          mostActiveMonth = { month, count };
+        }
+      }
+
+      // Simplified tracks for the filtered scope. Simplified in SQL to keep the payload small;
+      // ST_AsGeoJSON hands back a JSON string we parse directly (no wkx round-trip needed here).
+      const filteredIds = filtered.map((r) => r.id);
+      const tracks =
+        filteredIds.length === 0
+          ? []
+          : (
+              await ctx.db
+                .select({
+                  id: paddles.id,
+                  geojson: sql<string>`ST_AsGeoJSON(ST_Simplify(${paddles.trackGeom}, 0.0001))`,
+                })
+                .from(paddles)
+                .where(
+                  and(
+                    inArray(paddles.id, filteredIds),
+                    isNotNull(paddles.trackGeom),
+                  ),
+                )
+            ).map((row) => ({
+              id: row.id,
+              geom: JSON.parse(row.geojson) as LineString,
+            }));
+
+      return {
+        years,
+        totals,
+        longest,
+        fastest,
+        mostActiveMonth,
+        currentStreakWeeks,
+        tracks,
+      };
+    }),
 });

@@ -7,7 +7,8 @@ import {
   Text,
   View,
 } from "react-native";
-import { useFocusEffect } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
+import { useFocusEffect, useRouter } from "expo-router";
 import { useQueryClient } from "@tanstack/react-query";
 import * as ImagePicker from "expo-image-picker";
 
@@ -91,6 +92,7 @@ function useSyncStatus() {
 }
 
 export default function MeScreen() {
+  const router = useRouter();
   const { data: session, refetch: refetchSession } = authClient.useSession();
   const queryClient = useQueryClient();
   const stats = api.paddles.myStats.useQuery();
@@ -253,6 +255,16 @@ export default function MeScreen() {
           </Text>
         )}
       </View>
+
+      <Pressable
+        onPress={() => router.push("/review")}
+        className="flex-row items-center justify-between rounded-2xl bg-white p-4 shadow-sm active:opacity-80"
+      >
+        <Text className="text-base font-semibold text-river-900">
+          🏆 Paddle in Review
+        </Text>
+        <Ionicons name="chevron-forward" size={20} color="#1f7796" />
+      </Pressable>
 
       <CrewSection />
 

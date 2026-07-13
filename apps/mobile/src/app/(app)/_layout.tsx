@@ -106,6 +106,14 @@ export default function AppLayout() {
         name="routes/[id]"
         options={{ href: null, headerShown: false }}
       />
+      {/* Paddle-in-review recap: reachable from Me's "🏆 Paddle in Review" row (router.push("/review")),
+          not a primary tab -- same href: null + headerShown: false pattern as paddles/[id] and
+          routes/[id] above (this screen renders its own back button). This file is a direct sibling
+          ("review.tsx", no nested folder), so its route name is just "review". */}
+      <Tabs.Screen
+        name="review"
+        options={{ href: null, headerShown: false }}
+      />
     </Tabs>
   );
 }
