@@ -5,6 +5,7 @@ import {
   jsonb,
   pgEnum,
   pgTableCreator,
+  primaryKey,
   real,
   text,
   timestamp,
@@ -92,6 +93,7 @@ export const paddles = createTable(
     trackGeom: lineString("track_geom"),
     trackJson: jsonb("track_json"),
     note: text("note"),
+    guestNames: jsonb("guest_names").$type<string[]>(),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
   (table) => [
@@ -132,6 +134,171 @@ export const presence = createTable("presence", {
   tripType: routeType("trip_type").notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
+
+/**
+ * A named crew ("team") whose membership scopes the "teams" feed filter. Lightweight by design:
+ * any signed-in user may add or remove members; only the creator may delete the team.
+ */
+export const teams = createTable("teams", {
+  id: uuid("id").primaryKey(),
+  name: text("name").notNull(),
+  createdBy: text("created_by")
+    .notNull()
+    .references(() => user.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+/** Membership rows for `teams`. Composite PK keeps a user from being added to a team twice. */
+export const teamMembers = createTable(
+  "team_members",
+  {
+    teamId: uuid("team_id")
+      .notNull()
+      .references(() => teams.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id),
+    addedBy: text("added_by")
+      .notNull()
+      .references(() => user.id),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.teamId, table.userId] }),
+    index("team_members_userId_idx").on(table.userId),
+  ],
+);
+
+/** A comment left on a paddle. `id` is client-generated for the same offline-idempotency reason. */
+export const paddleComments = createTable(
+  "paddle_comments",
+  {
+    id: uuid("id").primaryKey(),
+    paddleId: uuid("paddle_id")
+      .notNull()
+      .references(() => paddles.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id),
+    body: text("body").notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [index("paddle_comments_paddleId_idx").on(table.paddleId)],
+);
+
+/** An emoji reaction on a paddle. Composite PK = one row per (paddle, user, emoji). */
+export const paddleReactions = createTable(
+  "paddle_reactions",
+  {
+    paddleId: uuid("paddle_id")
+      .notNull()
+      .references(() => paddles.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id),
+    emoji: text("emoji").notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.paddleId, table.userId, table.emoji] }),
+  ],
+);
+
+/** A user's private bookmark of a paddle. Composite PK = one pin per (user, paddle). */
+export const paddlePins = createTable(
+  "paddle_pins",
+  {
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id),
+    paddleId: uuid("paddle_id")
+      .notNull()
+      .references(() => paddles.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.userId, table.paddleId] })],
+);
+
+/** Registered co-paddlers on a trip (guests without accounts go in `paddles.guestNames`). */
+export const paddleCrew = createTable(
+  "paddle_crew",
+  {
+    paddleId: uuid("paddle_id")
+      .notNull()
+      .references(() => paddles.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.paddleId, table.userId] }),
+    index("paddle_crew_userId_idx").on(table.userId),
+  ],
+);
+
+export const teamsRelations = relations(teams, ({ one, many }) => ({
+  creator: one(user, {
+    fields: [teams.createdBy],
+    references: [user.id],
+  }),
+  members: many(teamMembers),
+}));
+
+export const teamMembersRelations = relations(teamMembers, ({ one }) => ({
+  team: one(teams, {
+    fields: [teamMembers.teamId],
+    references: [teams.id],
+  }),
+  user: one(user, {
+    fields: [teamMembers.userId],
+    references: [user.id],
+  }),
+}));
+
+export const paddleCommentsRelations = relations(paddleComments, ({ one }) => ({
+  paddle: one(paddles, {
+    fields: [paddleComments.paddleId],
+    references: [paddles.id],
+  }),
+  user: one(user, {
+    fields: [paddleComments.userId],
+    references: [user.id],
+  }),
+}));
+
+export const paddleReactionsRelations = relations(paddleReactions, ({ one }) => ({
+  paddle: one(paddles, {
+    fields: [paddleReactions.paddleId],
+    references: [paddles.id],
+  }),
+  user: one(user, {
+    fields: [paddleReactions.userId],
+    references: [user.id],
+  }),
+}));
+
+export const paddlePinsRelations = relations(paddlePins, ({ one }) => ({
+  paddle: one(paddles, {
+    fields: [paddlePins.paddleId],
+    references: [paddles.id],
+  }),
+  user: one(user, {
+    fields: [paddlePins.userId],
+    references: [user.id],
+  }),
+}));
+
+export const paddleCrewRelations = relations(paddleCrew, ({ one }) => ({
+  paddle: one(paddles, {
+    fields: [paddleCrew.paddleId],
+    references: [paddles.id],
+  }),
+  user: one(user, {
+    fields: [paddleCrew.userId],
+    references: [user.id],
+  }),
+}));
 
 export const routesRelations = relations(routes, ({ one, many }) => ({
   creator: one(user, {

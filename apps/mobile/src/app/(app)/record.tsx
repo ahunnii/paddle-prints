@@ -33,6 +33,7 @@ import { simplifyTrack } from "@paddle-prints/recorder-core/simplify";
 import type { TripType } from "@paddle-prints/recorder-core/types";
 
 import { NavMap, type NavPoi } from "../../components/map/nav-map";
+import { CrewPicker } from "../../components/record/crew-picker";
 import {
   formatClock,
   formatDistanceMi,
@@ -158,6 +159,101 @@ function useRouteForRecording(routeId: string | null | undefined): {
     etaSpeedMps: null,
     source: "network",
     isPending: true,
+    isError: false,
+  };
+}
+
+/**
+ * Resolve a *previously saved paddle* as a retraceable route, for the "Paddle this" deep link from
+ * pinned paddles (pinned-section.tsx) and the crew feed. Deliberately mirrors
+ * `useRouteForRecording`'s return shape EXACTLY (`route`/`etaSpeedMps`/`source`/`isPending`/`isError`)
+ * so SetupScreen can drive its confirm UI and `configure()` call off either hook without a second code
+ * path -- the two are read through the same variables below. Differences from a real route:
+ *  - `route.id` here is the PADDLE's id, not a `routes` table row -- callers must NOT feed it back
+ *    into `configure({ routeId })` (that would try to save the new paddle against a non-existent
+ *    route). `routeId: null` is always passed to `configure()` for this path.
+ *  - No offline snapshot exists for a single paddle (unlike routes), so `source` is always "network";
+ *    a network failure surfaces directly as `isError`.
+ *  - `pois`/`paddles` are always empty -- a retraced paddle carries no corridor POIs or history of its
+ *    own.
+ *  - A track with fewer than 2 points can't be retraced (mirrors the `trackGeometry`/`lineString`
+ *    Zod minimum server-side): `route` resolves to `null` with no error, and the caller falls back to
+ *    a free paddle.
+ */
+function usePaddleForRecording(paddleId: string | null | undefined): {
+  route: RecordingRoute | null;
+  etaSpeedMps: number | null;
+  source: "network" | "snapshot";
+  isPending: boolean;
+  isError: boolean;
+} {
+  const enabled = !!paddleId;
+  const byIdQuery = api.paddles.byId.useQuery(
+    { id: paddleId ?? "" },
+    { enabled },
+  );
+
+  if (!enabled) {
+    return {
+      route: null,
+      etaSpeedMps: null,
+      source: "network",
+      isPending: false,
+      isError: false,
+    };
+  }
+  if (byIdQuery.isPending) {
+    return {
+      route: null,
+      etaSpeedMps: null,
+      source: "network",
+      isPending: true,
+      isError: false,
+    };
+  }
+  if (byIdQuery.isError) {
+    return {
+      route: null,
+      etaSpeedMps: null,
+      source: "network",
+      isPending: false,
+      isError: true,
+    };
+  }
+
+  const paddle = byIdQuery.data;
+  const coords = paddle.trackGeom?.coordinates;
+  if (!coords || coords.length < 2) {
+    // Not enough GPS data to retrace -- caller treats this as a free paddle.
+    return {
+      route: null,
+      etaSpeedMps: null,
+      source: "network",
+      isPending: false,
+      isError: false,
+    };
+  }
+
+  const route: RecordingRoute = {
+    id: paddle.id,
+    name: `Retracing ${paddle.userName}'s paddle`,
+    type: paddle.tripType,
+    shape: "one_way",
+    geom: { type: "LineString", coordinates: coords },
+    distanceM: paddle.distanceM,
+    description: null,
+    createdBy: paddle.userId,
+    createdAt: paddle.startedAt,
+    creatorName: paddle.userName,
+    pois: [],
+    paddles: [],
+  };
+
+  return {
+    route,
+    etaSpeedMps: paddle.avgSpeedMps ?? null,
+    source: "network",
+    isPending: false,
     isError: false,
   };
 }
@@ -309,7 +405,10 @@ function ResumePrompt({
 
 // --- setup phase: route/free-paddle picker + pre-start confirm --------------
 
-type Selection = { type: "route"; id: string } | { type: "free" };
+type Selection =
+  | { type: "route"; id: string }
+  | { type: "paddle"; id: string }
+  | { type: "free" };
 
 function SetupScreen({
   freeTripType,
@@ -327,36 +426,80 @@ function SetupScreen({
   const configure = useRecorder((s) => s.configure);
   const start = useRecorder((s) => s.start);
 
-  // The route-detail screen's "Start paddle" button pushes here with `?route=<id>` -- pick it up as
-  // an initial selection so the user lands straight in the confirm step instead of the picker list.
-  // SetupScreen only ever mounts when the machine is idle and no resume-checkpoint prompt is showing
-  // (see RecordScreen above), so no extra status check is needed here; the ref just guards against
-  // re-applying the same param value again (e.g. after the user manually backs out to the picker).
-  const { route: routeParam } = useLocalSearchParams<{ route?: string }>();
+  // The route-detail screen's "Start paddle" button pushes here with `?route=<id>`, and a pinned
+  // paddle's "Paddle this" (pinned-section.tsx) pushes with `?paddle=<id>` when the pin has no
+  // saved route -- pick either up as an initial selection so the user lands straight in the confirm
+  // step instead of the picker list. SetupScreen only ever mounts when the machine is idle and no
+  // resume-checkpoint prompt is showing (see RecordScreen above), so no extra status check is needed
+  // here; each ref just guards against re-applying the same param value again (e.g. after the user
+  // manually backs out to the picker).
+  const { route: routeParam, paddle: paddleParam } = useLocalSearchParams<{
+    route?: string;
+    paddle?: string;
+  }>();
   const lastAppliedRouteParam = useRef<string | null>(null);
+  const lastAppliedPaddleParam = useRef<string | null>(null);
   useEffect(() => {
     if (!routeParam || lastAppliedRouteParam.current === routeParam) return;
     lastAppliedRouteParam.current = routeParam;
     setSelection({ type: "route", id: routeParam });
   }, [routeParam]);
+  useEffect(() => {
+    if (!paddleParam || lastAppliedPaddleParam.current === paddleParam) return;
+    lastAppliedPaddleParam.current = paddleParam;
+    setSelection({ type: "paddle", id: paddleParam });
+  }, [paddleParam]);
 
   const routesQuery = api.routes.list.useQuery(undefined, {
     enabled: selection === null,
   });
 
   const selectedRouteId = selection?.type === "route" ? selection.id : undefined;
+  const selectedPaddleId = selection?.type === "paddle" ? selection.id : undefined;
   // Network-first with a downloaded-snapshot fallback, so a downloaded route can be recorded offline.
   const routeForRecording = useRouteForRecording(selectedRouteId);
+  // Retracing a pinned/past paddle -- see usePaddleForRecording's doc comment for how its shape
+  // mirrors routeForRecording above.
+  const paddleForRecording = usePaddleForRecording(selectedPaddleId);
   const { route: resolvedRoute, etaSpeedMps } = routeForRecording;
+  const { route: resolvedPaddleRoute, etaSpeedMps: paddleEtaSpeedMps } = paddleForRecording;
+
+  // A "paddle" selection that resolves with no track to retrace (too few points, see
+  // usePaddleForRecording) silently falls back to a free paddle, reusing the "free" branch of both
+  // this effect and the config effect below rather than adding a third render path.
+  useEffect(() => {
+    if (selection?.type !== "paddle") return;
+    if (paddleForRecording.isPending || paddleForRecording.isError) return;
+    if (!resolvedPaddleRoute) setSelection({ type: "free" });
+  }, [selection, paddleForRecording.isPending, paddleForRecording.isError, resolvedPaddleRoute]);
 
   // Configure the recorder as soon as we know enough: once for a free paddle (the toggle is
   // deliberately NOT a dependency here -- it's read straight from `freeTripType` at save time
-  // instead, same as web's buildInput -- so flipping it doesn't reset the store's `note`), or once
-  // the route + personal ETA have both resolved (from the network, or the snapshot offline).
+  // instead, same as web's buildInput -- so flipping it doesn't reset the store's `note`), once the
+  // route + personal ETA have both resolved (from the network, or the snapshot offline), or once a
+  // retraceable paddle has resolved.
   useEffect(() => {
     if (!selection) return;
     if (selection.type === "free") {
       configure({ routeId: null, tripType: "river", routeCoords: null, routeShape: "one_way" });
+      return;
+    }
+    if (selection.type === "paddle") {
+      // routeId is always null here: this paddle isn't a `routes` table row, so the new paddle
+      // must save with no route link (retracing carries no persistent association).
+      if (resolvedPaddleRoute) {
+        configure({
+          routeId: null,
+          tripType: resolvedPaddleRoute.type,
+          routeCoords: resolvedPaddleRoute.geom.coordinates.map(
+            (c) => [c[0], c[1]] as [number, number],
+          ),
+          routeShape: resolvedPaddleRoute.shape,
+          ...(paddleEtaSpeedMps != null
+            ? { historicalSpeedMps: paddleEtaSpeedMps }
+            : {}),
+        });
+      }
       return;
     }
     if (resolvedRoute && etaSpeedMps != null) {
@@ -371,7 +514,7 @@ function SetupScreen({
       });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selection, resolvedRoute, etaSpeedMps]);
+  }, [selection, resolvedRoute, etaSpeedMps, resolvedPaddleRoute, paddleEtaSpeedMps]);
 
   async function handleStart() {
     setPermError(null);
@@ -403,7 +546,16 @@ function SetupScreen({
   const loadingRoute =
     selection.type === "route" && routeForRecording.isPending;
   const routeErrored = selection.type === "route" && routeForRecording.isError;
-  const route = selection.type === "route" ? resolvedRoute : null;
+  const loadingPaddle =
+    selection.type === "paddle" && paddleForRecording.isPending;
+  const paddleErrored =
+    selection.type === "paddle" && paddleForRecording.isError;
+  const route =
+    selection.type === "route"
+      ? resolvedRoute
+      : selection.type === "paddle"
+        ? resolvedPaddleRoute
+        : null;
   const usingSnapshot =
     selection.type === "route" && routeForRecording.source === "snapshot";
 
@@ -443,11 +595,15 @@ function SetupScreen({
               ))}
             </View>
           </View>
-        ) : loadingRoute ? (
+        ) : loadingRoute || loadingPaddle ? (
           <ActivityIndicator color="#1f7796" />
         ) : routeErrored ? (
           <Text className="text-center text-sm text-red-600">
             Couldn&apos;t load that route.
+          </Text>
+        ) : paddleErrored ? (
+          <Text className="text-center text-sm text-red-600">
+            Couldn&apos;t load that paddle.
           </Text>
         ) : route ? (
           <View className="items-center gap-1">
@@ -493,7 +649,9 @@ function SetupScreen({
 
       <Pressable
         onPress={() => void handleStart()}
-        disabled={starting || loadingRoute || routeErrored}
+        disabled={
+          starting || loadingRoute || routeErrored || loadingPaddle || paddleErrored
+        }
         className="min-h-16 items-center justify-center rounded-3xl bg-sunset-500 disabled:opacity-60"
       >
         {starting ? (
@@ -808,6 +966,8 @@ function FinishedScreen({ freeTripType }: { freeTripType: TripType }) {
   const paddleId = useRef<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [crewUserIds, setCrewUserIds] = useState<string[]>([]);
+  const [guestNames, setGuestNames] = useState<string[]>([]);
 
   const avgMph = machine.movingS > 0 ? machine.distanceM / machine.movingS : 0;
 
@@ -839,6 +999,11 @@ function FinishedScreen({ freeTripType }: { freeTripType: TripType }) {
           : null,
       trackJson: machine.track.length > 0 ? machine.track : null,
       note: trimmedNote.length > 0 ? trimmedNote : null,
+      // Phase 3 social fields, from the crew picker below. `queuePaddle` writes this same object
+      // verbatim to the durable SQLite queue, so these ride along on both the online-first send AND
+      // any later offline replay -- there's only the one input object / one save path.
+      crewUserIds,
+      guestNames,
     };
 
     try {
@@ -900,6 +1065,13 @@ function FinishedScreen({ freeTripType }: { freeTripType: TripType }) {
           className="min-h-16 rounded-2xl border border-river-200 bg-white px-3 py-2 text-sm text-river-900"
         />
       </View>
+
+      <CrewPicker
+        selectedUserIds={crewUserIds}
+        onSelectedUserIdsChange={setCrewUserIds}
+        guestNames={guestNames}
+        onGuestNamesChange={setGuestNames}
+      />
 
       {error ? (
         <Text className="text-center text-sm text-red-600">{error}</Text>

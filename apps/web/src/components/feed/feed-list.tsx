@@ -1,34 +1,40 @@
 "use client";
 
 /**
- * The crew feed, merged with this device's outbound queue. The server renders the shared feed
- * (`initial`); this client component folds in the paddles still sitting in IndexedDB so a
+ * The crew feed, merged with this device's outbound queue. The server renders the shared "all"
+ * feed (`initial`); this client component folds in the paddles still sitting in IndexedDB so a
  * just-finished trip appears immediately -- before background sync lands it -- instead of looking
- * lost. Each pending item wears a sync badge, and when it finally reaches the server we hold a brief
- * "Saved ✓" state (and `router.refresh()`) so it never flickers out and back as the server list
- * catches up.
+ * lost. Each pending item wears a sync badge, and when it finally reaches the server we hold a
+ * brief "Saved ✓" state (refetching the live queries so it never flickers out and back as the
+ * server list catches up.
+ *
+ * An "All / My Teams" toggle switches between `paddles.feed({ filter: "all" })` (seeded from the
+ * server-rendered `initial`, so it paints instantly) and `paddles.feed({ filter: "teams" })` (a
+ * plain client fetch, only enabled once selected). Queued/local items are device-local and always
+ * belong to the signed-in user, so they're merged into both views regardless of which is active.
  */
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useLiveQuery } from "dexie-react-hooks";
 
+import { ReactionBar } from "~/components/paddles/reaction-bar";
 import { Avatar } from "~/components/ui/avatar";
 import { db } from "~/lib/offline/db";
-import type { RouterOutputs } from "~/trpc/react";
+import { api, type RouterOutputs } from "~/trpc/react";
 
 const METERS_PER_MILE = 1609.344;
 const MPS_TO_MPH = 2.2369363;
 
 type ServerRow = RouterOutputs["paddles"]["feed"][number];
+type FeedFilter = "all" | "teams";
 
 type SyncStatus = "syncing" | "failed" | "saved" | null;
 
 /**
  * The one shape the list renders -- server rows and queued paddles both normalize into this.
- * `userImage` is only ever known for server rows; queued paddles (still in this device's IndexedDB
- * outbound queue, not yet a `ServerRow`) don't carry it, so it's always `null` for them and the
- * Avatar falls back to initials.
+ * `userImage`, `commentCount`, `reactions`, and `myReactions` are only ever known for server rows;
+ * queued paddles (still in this device's IndexedDB outbound queue, not yet a `ServerRow`) default
+ * them (no image, no social activity yet -- they haven't reached the server).
  */
 interface FeedItem {
   id: string;
@@ -40,9 +46,12 @@ interface FeedItem {
   elapsedS: number;
   startedAt: Date | string;
   status: SyncStatus;
+  commentCount: number;
+  reactions: Record<string, number>;
+  myReactions: string[];
 }
 
-/** Defensive accessor: `item` may come from a server row (has `userImage`) or a locally-queued
+/** Defensive accessor: `item` may come from a server row (has these fields) or a locally-queued
  * paddle (doesn't) -- narrow with an `in` check rather than assuming the shape. */
 function userImageOf(item: { userImage?: string | null }): string | null {
   return "userImage" in item ? (item.userImage ?? null) : null;
@@ -59,8 +68,38 @@ function startedMs(item: FeedItem): number {
   return new Date(item.startedAt).getTime();
 }
 
+function serverRowToItem(r: ServerRow): FeedItem {
+  return {
+    id: r.id,
+    userName: r.userName,
+    userImage: userImageOf(r),
+    routeName: r.routeName,
+    distanceM: r.distanceM,
+    avgSpeedMps: r.avgSpeedMps,
+    elapsedS: r.elapsedS,
+    startedAt: r.startedAt,
+    status: null,
+    commentCount: r.commentCount,
+    reactions: r.reactions,
+    myReactions: r.myReactions,
+  };
+}
+
 export function FeedList({ initial }: { initial: ServerRow[] }) {
-  const router = useRouter();
+  const [filter, setFilter] = useState<FeedFilter>("all");
+
+  const allQuery = api.paddles.feed.useQuery(
+    { filter: "all" },
+    { initialData: initial },
+  );
+  const teamsQuery = api.paddles.feed.useQuery(
+    { filter: "teams" },
+    { enabled: filter === "teams" },
+  );
+
+  const serverRows: ServerRow[] =
+    filter === "all" ? allQuery.data : (teamsQuery.data ?? []);
+  const teamsLoading = filter === "teams" && teamsQuery.isPending;
 
   // The queued paddles on this device, mapped to feed items. Reactive: re-runs when the queue
   // changes (a paddle syncs and its row is deleted, or is dead-lettered).
@@ -81,14 +120,17 @@ export function FeedList({ initial }: { initial: ServerRow[] }) {
         elapsedS: r.input.elapsedS,
         startedAt: r.input.startedAt,
         status: r.deadLetter ? "failed" : "syncing",
+        commentCount: 0,
+        reactions: {},
+        myReactions: [],
       });
     }
     return items;
   }, []);
 
-  // Paddles that have just left the queue (synced) but aren't in `initial` yet. We keep their
+  // Paddles that have just left the queue (synced) but aren't in the "all" feed yet. We keep their
   // last-rendered item around with a "Saved ✓" badge so they don't vanish for the beat between the
-  // queue row being deleted and the refreshed server feed arriving.
+  // queue row being deleted and the refetched server feed arriving.
   const [justSynced, setJustSynced] = useState<Map<string, FeedItem>>(
     () => new Map(),
   );
@@ -111,119 +153,180 @@ export function FeedList({ initial }: { initial: ServerRow[] }) {
         for (const [id, item] of additions) next.set(id, item);
         return next;
       });
-      // Pull the server feed so it picks up the freshly-synced paddle for real.
-      router.refresh();
+      // Pull the live feeds so they pick up the freshly-synced paddle for real.
+      void allQuery.refetch();
+      if (filter === "teams") void teamsQuery.refetch();
     }
-  }, [pendingItems, router]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingItems]);
 
-  // Once the server feed contains a just-synced id, hand it back off to the real row.
+  // Once the "all" feed contains a just-synced id, hand it back off to the real row (the "all"
+  // feed always includes the signed-in user's own paddles, so it's the reliable source of truth
+  // here even while viewing "teams").
   useEffect(() => {
-    const initialIds = new Set(initial.map((r) => r.id));
+    const allIds = new Set(allQuery.data.map((r) => r.id));
     setJustSynced((prev) => {
       if (prev.size === 0) return prev;
       let changed = false;
       const next = new Map(prev);
       for (const id of prev.keys()) {
-        if (initialIds.has(id)) {
+        if (allIds.has(id)) {
           next.delete(id);
           changed = true;
         }
       }
       return changed ? next : prev;
     });
-  }, [initial]);
+  }, [allQuery.data]);
 
-  const initialIds = new Set(initial.map((r) => r.id));
+  const serverIds = new Set(serverRows.map((r) => r.id));
   const pendingIds = new Set((pendingItems ?? []).map((it) => it.id));
 
-  const serverItems: FeedItem[] = initial.map((r) => ({
-    id: r.id,
-    userName: r.userName,
-    userImage: userImageOf(r),
-    routeName: r.routeName,
-    distanceM: r.distanceM,
-    avgSpeedMps: r.avgSpeedMps,
-    elapsedS: r.elapsedS,
-    startedAt: r.startedAt,
-    status: null,
-  }));
+  const serverItems: FeedItem[] = serverRows.map(serverRowToItem);
 
-  // Queued paddles not already on the server, plus any we're briefly holding as "Saved ✓".
-  const pendingNew = (pendingItems ?? []).filter((it) => !initialIds.has(it.id));
+  // Queued paddles not already in the current view, plus any we're briefly holding as "Saved ✓".
+  const pendingNew = (pendingItems ?? []).filter((it) => !serverIds.has(it.id));
   const justSyncedNew = [...justSynced.values()].filter(
-    (it) => !initialIds.has(it.id) && !pendingIds.has(it.id),
+    (it) => !serverIds.has(it.id) && !pendingIds.has(it.id),
   );
 
   const merged = [...serverItems, ...pendingNew, ...justSyncedNew].sort(
     (a, b) => startedMs(b) - startedMs(a),
   );
 
-  if (merged.length === 0) {
-    return (
-      <div className="border-river-700 rounded-2xl border border-dashed p-6 text-center">
-        <p className="text-river-200 text-sm">
-          No paddles logged yet. Pick a route and tap Start paddle to be first on
-          the board.
-        </p>
-      </div>
-    );
-  }
-
   return (
-    <ul className="flex flex-col gap-2">
-      {merged.map((p) => {
-        const miles = (p.distanceM / METERS_PER_MILE).toFixed(1);
-        const mph = (p.avgSpeedMps * MPS_TO_MPH).toFixed(1);
-        const inlineBadge =
-          p.status === "syncing" || p.status === "saved" ? p.status : null;
-        return (
-          <li key={p.id}>
-            <Link
-              href={`/paddles/${p.id}`}
-              className="bg-river-900/60 hover:bg-river-900 active:bg-river-900 block rounded-2xl p-4 shadow transition-colors"
-            >
-              <div className="flex items-start justify-between gap-2">
-                <div className="flex min-w-0 items-start gap-2">
-                  <Avatar name={p.userName ?? "Someone"} image={p.userImage} size="sm" />
-                  <p className="font-semibold">
-                    <span className="text-white">{p.userName}</span>{" "}
-                    <span className="text-river-300">paddled</span>{" "}
-                    <span className="text-sunset-300">
-                      {p.routeName ?? "a quick start paddle"}
+    <div className="flex flex-col gap-3">
+      <div className="flex gap-2">
+        <FilterPill active={filter === "all"} onClick={() => setFilter("all")}>
+          All
+        </FilterPill>
+        <FilterPill
+          active={filter === "teams"}
+          onClick={() => setFilter("teams")}
+        >
+          My Teams
+        </FilterPill>
+      </div>
+
+      {teamsLoading ? (
+        <p className="text-river-300 px-1 text-sm">Loading your teams…</p>
+      ) : merged.length === 0 ? (
+        <div className="border-river-700 rounded-2xl border border-dashed p-6 text-center">
+          <p className="text-river-200 text-sm">
+            {filter === "teams"
+              ? "No paddles from your teams yet."
+              : "No paddles logged yet. Pick a route and tap Start paddle to be first on the board."}
+          </p>
+        </div>
+      ) : (
+        <ul className="flex flex-col gap-2">
+          {merged.map((p) => {
+            const miles = (p.distanceM / METERS_PER_MILE).toFixed(1);
+            const mph = (p.avgSpeedMps * MPS_TO_MPH).toFixed(1);
+            const inlineBadge =
+              p.status === "syncing" || p.status === "saved" ? p.status : null;
+            const showFooter = p.status === null || p.status === "saved";
+            return (
+              <li key={p.id} className="group relative">
+                <div className="bg-river-900/60 group-hover:bg-river-900 group-active:bg-river-900 relative rounded-2xl p-4 shadow transition-colors">
+                  {/* Stretched link: covers the whole card so anywhere without a higher-stacked
+                      interactive child (the footer below) navigates to the paddle. */}
+                  <Link
+                    href={`/paddles/${p.id}`}
+                    className="absolute inset-0 z-10 rounded-2xl"
+                  >
+                    <span className="sr-only">
+                      View paddle by {p.userName ?? "someone"}
                     </span>
+                  </Link>
+
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex min-w-0 items-start gap-2">
+                      <Avatar name={p.userName ?? "Someone"} image={p.userImage} size="sm" />
+                      <p className="font-semibold">
+                        <span className="text-white">{p.userName}</span>{" "}
+                        <span className="text-river-300">paddled</span>{" "}
+                        <span className="text-sunset-300">
+                          {p.routeName ?? "a quick start paddle"}
+                        </span>
+                      </p>
+                    </div>
+                    {inlineBadge === "syncing" ? (
+                      <span className="shrink-0 rounded-full bg-amber-400/90 px-2 py-0.5 text-xs font-bold text-amber-950">
+                        Syncing…
+                      </span>
+                    ) : inlineBadge === "saved" ? (
+                      <span className="shrink-0 rounded-full bg-emerald-400/90 px-2 py-0.5 text-xs font-bold text-emerald-950">
+                        Saved ✓
+                      </span>
+                    ) : null}
+                  </div>
+                  <p className="text-river-200 mt-1 text-sm tabular-nums">
+                    {miles} mi in {shortElapsed(p.elapsedS)} · avg {mph} mph
                   </p>
+                  <p className="text-river-400 mt-0.5 text-xs">
+                    {new Date(p.startedAt).toLocaleDateString([], {
+                      month: "short",
+                      day: "numeric",
+                    })}
+                  </p>
+
+                  {showFooter ? (
+                    <div className="relative z-20 mt-2 flex items-center justify-between gap-2">
+                      <ReactionBar
+                        paddleId={p.id}
+                        reactions={p.reactions}
+                        myReactions={p.myReactions}
+                        size="sm"
+                        variant="dark"
+                      />
+                      <Link
+                        href={`/paddles/${p.id}#comments`}
+                        onClick={(e) => e.stopPropagation()}
+                        className="text-river-300 hover:text-river-100 shrink-0 text-xs font-semibold"
+                      >
+                        💬 {p.commentCount}
+                      </Link>
+                    </div>
+                  ) : null}
                 </div>
-                {inlineBadge === "syncing" ? (
-                  <span className="shrink-0 rounded-full bg-amber-400/90 px-2 py-0.5 text-xs font-bold text-amber-950">
-                    Syncing…
-                  </span>
-                ) : inlineBadge === "saved" ? (
-                  <span className="shrink-0 rounded-full bg-emerald-400/90 px-2 py-0.5 text-xs font-bold text-emerald-950">
-                    Saved ✓
-                  </span>
+                {p.status === "failed" ? (
+                  <Link
+                    href="/me"
+                    className="mt-1 inline-block rounded-full bg-red-500 px-2 py-0.5 text-xs font-bold text-white"
+                  >
+                    Sync failed — see profile
+                  </Link>
                 ) : null}
-              </div>
-              <p className="text-river-200 mt-1 text-sm tabular-nums">
-                {miles} mi in {shortElapsed(p.elapsedS)} · avg {mph} mph
-              </p>
-              <p className="text-river-400 mt-0.5 text-xs">
-                {new Date(p.startedAt).toLocaleDateString([], {
-                  month: "short",
-                  day: "numeric",
-                })}
-              </p>
-            </Link>
-            {p.status === "failed" ? (
-              <Link
-                href="/me"
-                className="mt-1 inline-block rounded-full bg-red-500 px-2 py-0.5 text-xs font-bold text-white"
-              >
-                Sync failed — see profile
-              </Link>
-            ) : null}
-          </li>
-        );
-      })}
-    </ul>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function FilterPill({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`rounded-full px-3 py-1 text-xs font-semibold transition-colors ${
+        active
+          ? "bg-sunset-500 text-white"
+          : "border-river-300 text-river-200 hover:bg-river-800 border"
+      }`}
+    >
+      {children}
+    </button>
   );
 }

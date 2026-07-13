@@ -4,6 +4,8 @@ import { poisRouter } from "./routers/pois";
 import { presenceRouter } from "./routers/presence";
 import { riversRouter } from "./routers/rivers";
 import { routesRouter } from "./routers/routes";
+import { socialRouter } from "./routers/social";
+import { teamsRouter } from "./routers/teams";
 import { usersRouter } from "./routers/users";
 import { createCallerFactory, createTRPCRouter } from "./trpc";
 
@@ -19,6 +21,8 @@ export const appRouter = createTRPCRouter({
   presence: presenceRouter,
   rivers: riversRouter,
   routes: routesRouter,
+  social: socialRouter,
+  teams: teamsRouter,
   users: usersRouter,
 });
 

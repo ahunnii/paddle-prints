@@ -12,10 +12,13 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useLiveQuery } from "dexie-react-hooks";
 
+import { CommentThread } from "~/components/paddles/comment-thread";
 import { FloatingHeader } from "~/components/layout/floating-header";
 import { PaddleMap } from "~/components/paddles/paddle-map";
+import { ReactionBar } from "~/components/paddles/reaction-bar";
 import { Avatar } from "~/components/ui/avatar";
 import { toast } from "~/components/ui/toaster";
+import { useSession } from "~/lib/auth-client";
 import { db } from "~/lib/offline/db";
 import { api } from "~/trpc/react";
 
@@ -24,6 +27,7 @@ const MPS_TO_MPH = 2.2369363;
 
 export interface SummaryData {
   id: string;
+  userId?: string;
   userName: string | null;
   userImage: string | null;
   routeId: string | null;
@@ -38,6 +42,15 @@ export interface SummaryData {
   note: string | null;
   isOwner: boolean;
   pending: boolean;
+  /** Social fields (Phase 3). Only ever populated for server-loaded paddles -- a paddle still
+   * queued locally hasn't reached the server yet, so it can't have crew, reactions, comments, or a
+   * pin, and the UI below skips rendering all of that for `pending` rows. */
+  guestNames?: string[];
+  crew?: Array<{ id: string; name: string | null; image: string | null }>;
+  commentCount?: number;
+  reactions?: Record<string, number>;
+  myReactions?: string[];
+  pinnedByMe?: boolean;
 }
 
 function formatElapsed(totalS: number) {
@@ -106,6 +119,7 @@ export function PaddleSummaryResilient({
   }, [server, local, router]);
 
   const data = server ?? local;
+  const session = useSession();
 
   if (data === undefined) {
     return (
@@ -148,7 +162,7 @@ export function PaddleSummaryResilient({
       <FloatingHeader backHref="/" backLabel="Home" />
 
       <div className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-center p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
-        <div className="pointer-events-auto flex w-full max-w-md flex-col gap-4 rounded-3xl bg-white/95 p-5 shadow-2xl backdrop-blur">
+        <div className="pointer-events-auto flex max-h-[80vh] w-full max-w-md flex-col gap-4 overflow-y-auto rounded-3xl bg-white/95 p-5 shadow-2xl backdrop-blur">
           <div>
             <div className="flex items-center gap-2">
               <Avatar
@@ -190,15 +204,116 @@ export function PaddleSummaryResilient({
             <Cell label="Avg speed" value={`${avgMph} mph`} />
           </div>
 
+          {!data.pending ? (
+            <>
+              <div className="flex items-center justify-between gap-2">
+                <ReactionBar
+                  paddleId={data.id}
+                  reactions={data.reactions ?? {}}
+                  myReactions={data.myReactions ?? []}
+                  variant="light"
+                />
+                <PinButton
+                  paddleId={data.id}
+                  pinnedByMe={data.pinnedByMe ?? false}
+                />
+              </div>
+
+              <CrewRow crew={data.crew ?? []} guestNames={data.guestNames ?? []} />
+
+              <Link
+                href={
+                  data.routeId
+                    ? `/record?route=${data.routeId}`
+                    : `/record?paddle=${data.id}`
+                }
+                className="bg-sunset-500 active:bg-sunset-600 flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-bold text-white"
+              >
+                🛶 Paddle this
+              </Link>
+            </>
+          ) : null}
+
           <PaddleNote
             id={id}
             note={data.note}
             isOwner={data.isOwner}
             pending={data.pending}
           />
+
+          {!data.pending ? (
+            <CommentThread paddleId={data.id} myUserId={session.data?.user.id} />
+          ) : null}
         </div>
       </div>
     </main>
+  );
+}
+
+/** Bookmark-style pin toggle. Optimistic: flips immediately, reverts on mutation failure. */
+function PinButton({
+  paddleId,
+  pinnedByMe,
+}: {
+  paddleId: string;
+  pinnedByMe: boolean;
+}) {
+  const [pinned, setPinned] = useState(pinnedByMe);
+  const toggle = api.social.pinToggle.useMutation({
+    onSuccess: (data) => setPinned(data.pinned),
+    onError: () => setPinned((p) => !p),
+  });
+
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        setPinned((p) => !p);
+        toggle.mutate({ paddleId });
+      }}
+      disabled={toggle.isPending}
+      className={`shrink-0 rounded-full border px-3 py-1.5 text-sm font-semibold transition-colors disabled:opacity-60 ${
+        pinned
+          ? "border-sunset-500 bg-sunset-500/15 text-sunset-600"
+          : "border-river-200 text-river-600 hover:bg-river-50"
+      }`}
+    >
+      {pinned ? "📌 Pinned" : "📌 Pin this paddle"}
+    </button>
+  );
+}
+
+/** "With <crew>, and guests <names>" -- only rendered when there's someone to show. */
+function CrewRow({
+  crew,
+  guestNames,
+}: {
+  crew: Array<{ id: string; name: string | null; image: string | null }>;
+  guestNames: string[];
+}) {
+  if (crew.length === 0 && guestNames.length === 0) return null;
+
+  return (
+    <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1.5 text-sm">
+      <span className="text-river-600">With</span>
+      {crew.map((c) => (
+        <span
+          key={c.id}
+          className="bg-river-50 inline-flex items-center gap-1 rounded-full py-0.5 pl-0.5 pr-2"
+        >
+          <Avatar name={c.name ?? "Someone"} image={c.image} size="sm" />
+          <span className="text-river-950 font-semibold">
+            {c.name ?? "Someone"}
+          </span>
+        </span>
+      ))}
+      {guestNames.length > 0 ? (
+        <span className="text-river-700">
+          {crew.length > 0 ? "and guests " : "guests "}
+          <span className="font-semibold">{guestNames.join(", ")}</span>
+        </span>
+      ) : null}
+    </div>
   );
 }
 

@@ -11,17 +11,19 @@ import { api } from "~/trpc/server";
 
 /**
  * On-water recording screen. `?route=<id>` ties the paddle to a saved route (showing progress /
- * remaining / ETA); with no route it's a free paddle. Session-gated.
+ * remaining / ETA); `?paddle=<id>` retraces another paddler's logged track (same nav experience, but
+ * saves with `routeId: null` since it isn't itself a saved route); with neither it's a free paddle.
+ * Session-gated.
  */
 export default async function RecordPage({
   searchParams,
 }: {
-  searchParams: Promise<{ route?: string }>;
+  searchParams: Promise<{ route?: string; paddle?: string }>;
 }) {
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session) redirect("/login");
 
-  const { route: routeId } = await searchParams;
+  const { route: routeId, paddle: paddleId } = await searchParams;
 
   let route: RecordRoute | null = null;
   if (routeId) {
@@ -50,9 +52,37 @@ export default async function RecordPage({
           lat: p.geom.coordinates[1]!,
         })),
         historicalSpeedMps: eta.speedMps,
+        saveRouteId: r.id,
       };
     } catch (err) {
       // A bad/removed route id just falls back to a free paddle rather than erroring the page.
+      if (!(err instanceof TRPCError && err.code === "NOT_FOUND")) throw err;
+      redirect("/record");
+    }
+  } else if (paddleId) {
+    try {
+      const p = await api.paddles.byId({ id: paddleId });
+      if (!p.trackGeom || p.trackGeom.coordinates.length < 2) {
+        // Nothing to retrace -- treat like a missing id and fall back to a free paddle.
+        throw new TRPCError({ code: "NOT_FOUND", message: "No track to retrace" });
+      }
+      route = {
+        id: p.id,
+        name: `Retracing ${p.userName}'s paddle`,
+        distanceM: p.distanceM,
+        shape: "one_way",
+        type: p.tripType,
+        coords: p.trackGeom.coordinates.map(
+          (c) => [c[0], c[1]] as [number, number],
+        ),
+        pois: [],
+        historicalSpeedMps: p.avgSpeedMps,
+        // Not a saved route -- the finished paddle must not point at another paddle's id via routeId.
+        saveRouteId: null,
+      };
+    } catch (err) {
+      // A bad/removed paddle id (or one with no usable track) falls back to a free paddle, same as
+      // an invalid route id.
       if (!(err instanceof TRPCError && err.code === "NOT_FOUND")) throw err;
       redirect("/record");
     }

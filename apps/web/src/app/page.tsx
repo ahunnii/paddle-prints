@@ -12,7 +12,7 @@ export default async function Home() {
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session) redirect("/login");
 
-  const feed = await api.paddles.feed();
+  const feed = await api.paddles.feed({ filter: "all" });
 
   return (
     <main className="from-river-800 to-river-950 min-h-dvh bg-gradient-to-b px-4 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-[max(1.5rem,env(safe-area-inset-top))] text-white">

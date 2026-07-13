@@ -1,12 +1,19 @@
 import { TRPCError } from "@trpc/server";
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, or, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { z } from "zod";
 
 import { DEFAULT_HISTORICAL_SPEED_MPS } from "@paddle-prints/recorder-core/constants";
 import { createTRPCRouter, protectedProcedure } from "../trpc";
 import { user } from "@paddle-prints/db/auth-schema";
-import { paddles, pois, routeShape, routeType, routes } from "@paddle-prints/db/schema";
+import {
+  paddleCrew,
+  paddles,
+  pois,
+  routeShape,
+  routeType,
+  routes,
+} from "@paddle-prints/db/schema";
 
 /** Mean of a non-empty array of speeds. Callers only invoke this after checking `.length > 0`. */
 function avgSpeed(speeds: number[]): number {
@@ -194,6 +201,19 @@ export const routesRouter = createTRPCRouter({
         return { oneWayS, roundTripS: oneWayS * 2 };
       };
 
+      // Paddles this user owns OR was registered as crew on -- their personal history includes
+      // trips they paddled but a crewmate logged.
+      const mineOrCrewed = or(
+        eq(paddles.userId, ctx.session.user.id),
+        inArray(
+          paddles.id,
+          ctx.db
+            .select({ id: paddleCrew.paddleId })
+            .from(paddleCrew)
+            .where(eq(paddleCrew.userId, ctx.session.user.id)),
+        ),
+      );
+
       // Tier 1: the user's own history on this exact route, newest first.
       const exactPaddles = await ctx.db
         .select({
@@ -204,12 +224,7 @@ export const routesRouter = createTRPCRouter({
           avgSpeedMps: paddles.avgSpeedMps,
         })
         .from(paddles)
-        .where(
-          and(
-            eq(paddles.routeId, input.routeId),
-            eq(paddles.userId, ctx.session.user.id),
-          ),
-        )
+        .where(and(eq(paddles.routeId, input.routeId), mineOrCrewed))
         .orderBy(desc(paddles.startedAt));
 
       if (exactPaddles.length > 0) {
@@ -231,12 +246,7 @@ export const routesRouter = createTRPCRouter({
       const typePaddles = await ctx.db
         .select({ avgSpeedMps: paddles.avgSpeedMps })
         .from(paddles)
-        .where(
-          and(
-            eq(paddles.userId, ctx.session.user.id),
-            eq(paddles.tripType, route.type),
-          ),
-        );
+        .where(and(mineOrCrewed, eq(paddles.tripType, route.type)));
 
       if (typePaddles.length > 0) {
         const speedMps = avgSpeed(typePaddles.map((p) => p.avgSpeedMps));

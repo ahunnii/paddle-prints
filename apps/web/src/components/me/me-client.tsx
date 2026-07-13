@@ -20,6 +20,8 @@ import { useSettings } from "~/lib/settings/use-settings";
 import { SignOutButton } from "~/app/_components/sign-out-button";
 import { AvatarUploader } from "~/components/me/avatar-uploader";
 import { CrewSection } from "~/components/me/crew-section";
+import { TeamsSection } from "~/components/me/teams-section";
+import { PinnedSection } from "~/components/me/pinned-section";
 
 const MPS_TO_MPH = 2.2369363;
 
@@ -122,6 +124,12 @@ export function MeClient({
 
         {/* Crew ---------------------------------------------------------------- */}
         <CrewSection />
+
+        {/* Paddle Teams ---------------------------------------------------- */}
+        <TeamsSection />
+
+        {/* Pinned Paddles ---------------------------------------------------- */}
+        <PinnedSection />
 
         {/* Preferences ------------------------------------------------------- */}
         <section className="flex flex-col gap-4 rounded-3xl bg-white/10 p-5">

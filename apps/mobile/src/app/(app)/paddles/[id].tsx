@@ -30,6 +30,8 @@ import {
 import type { Feature, LineString } from "geojson";
 
 import { BaseMap } from "../../../components/map/base-map";
+import { CommentThread } from "../../../components/social/comment-thread";
+import { ReactionBar } from "../../../components/social/reaction-bar";
 import { Avatar } from "../../../components/ui/avatar";
 import { authClient } from "../../../lib/auth-client";
 import {
@@ -55,6 +57,7 @@ export default function PaddleDetailScreen() {
   );
 
   const cameraRef = useRef<CameraRef>(null);
+  const scrollRef = useRef<ScrollView>(null);
   const [mapReady, setMapReady] = useState(false);
 
   const paddle = paddleQuery.data;
@@ -179,6 +182,7 @@ export default function PaddleDetailScreen() {
       </View>
 
       <ScrollView
+        ref={scrollRef}
         className="flex-1"
         contentContainerClassName="gap-4 p-4"
         keyboardShouldPersistTaps="handled"
@@ -207,8 +211,111 @@ export default function PaddleDetailScreen() {
           <Cell label="Avg speed" value={formatSpeedMph(avgMph)} />
         </View>
 
+        <View className="gap-3">
+          <ReactionBar
+            paddleId={paddle.id}
+            reactions={paddle.reactions}
+            myReactions={paddle.myReactions}
+          />
+          <PinToggle paddleId={paddle.id} pinnedByMe={paddle.pinnedByMe} />
+        </View>
+
+        <CrewRow crew={paddle.crew} guestNames={paddle.guestNames} />
+
+        <Pressable
+          onPress={() =>
+            router.push(
+              paddle.routeId
+                ? `/record?route=${paddle.routeId}`
+                : `/record?paddle=${paddle.id}`,
+            )
+          }
+          className="min-h-14 items-center justify-center rounded-2xl bg-sunset-500"
+        >
+          <Text className="text-lg font-bold text-white">🛶 Paddle this</Text>
+        </Pressable>
+
         <PaddleNote id={paddle.id} note={paddle.note} isOwner={isOwner} />
+
+        <CommentThread
+          paddleId={paddle.id}
+          onComposerFocus={() => scrollRef.current?.scrollToEnd({ animated: true })}
+        />
       </ScrollView>
+    </View>
+  );
+}
+
+/** Private per-user bookmark toggle. Optimistic: flips immediately on press, reconciled from the
+ * mutation's `pinned` result, reverted on error. */
+function PinToggle({
+  paddleId,
+  pinnedByMe,
+}: {
+  paddleId: string;
+  pinnedByMe: boolean;
+}) {
+  const [pinned, setPinned] = useState(pinnedByMe);
+  const toggle = api.social.pinToggle.useMutation();
+
+  function press() {
+    const prev = pinned;
+    setPinned(!prev);
+    toggle.mutate(
+      { paddleId },
+      {
+        onSuccess: (result) => setPinned(result.pinned),
+        onError: () => setPinned(prev),
+      },
+    );
+  }
+
+  return (
+    <Pressable
+      onPress={press}
+      className={`min-h-11 flex-row items-center justify-center self-start rounded-full px-4 ${
+        pinned ? "bg-river-600" : "bg-river-100"
+      }`}
+    >
+      <Text
+        className={`text-sm font-semibold ${pinned ? "text-white" : "text-river-700"}`}
+      >
+        📌 {pinned ? "Pinned" : "Pin this paddle"}
+      </Text>
+    </Pressable>
+  );
+}
+
+/** "With <crew avatars/names>" plus "and guests A, B" when either co-paddler list is non-empty. */
+function CrewRow({
+  crew,
+  guestNames,
+}: {
+  crew: { id: string; name: string; image: string | null }[];
+  guestNames: string[];
+}) {
+  if (crew.length === 0 && guestNames.length === 0) return null;
+
+  return (
+    <View className="gap-2">
+      <Text className="text-xs font-bold uppercase tracking-widest text-river-500">
+        With
+      </Text>
+      {crew.length > 0 ? (
+        <View className="flex-row flex-wrap items-center gap-3">
+          {crew.map((member) => (
+            <View key={member.id} className="flex-row items-center gap-1.5">
+              <Avatar name={member.name} image={member.image} size="sm" />
+              <Text className="text-sm text-river-700">{member.name}</Text>
+            </View>
+          ))}
+        </View>
+      ) : null}
+      {guestNames.length > 0 ? (
+        <Text className="text-sm text-river-600">
+          and guest{guestNames.length > 1 ? "s" : ""} {guestNames.join(", ")}
+        </Text>
+      ) : null}
     </View>
   );
 }

@@ -27,6 +27,7 @@ export default async function PaddleDetailPage({
     const paddle = await api.paddles.byId({ id });
     server = {
       id: paddle.id,
+      userId: paddle.userId,
       userName: paddle.userName,
       userImage: paddle.userImage,
       routeId: paddle.routeId,
@@ -47,6 +48,12 @@ export default async function PaddleDetailPage({
       note: paddle.note,
       isOwner: paddle.userId === session.user.id,
       pending: false,
+      guestNames: paddle.guestNames,
+      crew: paddle.crew,
+      commentCount: paddle.commentCount,
+      reactions: paddle.reactions,
+      myReactions: paddle.myReactions,
+      pinnedByMe: paddle.pinnedByMe,
     };
   } catch (err) {
     const notFound = err instanceof TRPCError && err.code === "NOT_FOUND";

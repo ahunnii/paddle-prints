@@ -15,6 +15,8 @@ import { colors } from "@paddle-prints/tokens";
 
 import { Avatar } from "../../components/ui/avatar";
 import { CrewSection } from "../../components/me/crew-section";
+import { PinnedSection } from "../../components/me/pinned-section";
+import { TeamsSection } from "../../components/me/teams-section";
 import { env } from "../../env";
 import { authClient } from "../../lib/auth-client";
 import { formatSpeedMph } from "../../lib/format";
@@ -253,6 +255,10 @@ export default function MeScreen() {
       </View>
 
       <CrewSection />
+
+      <TeamsSection />
+
+      <PinnedSection />
 
       {/* Sync card -- shown only when there's something queued or failed (cleaner than web's always-on
           section). Waiting counts, any dead-lettered rows with a per-row discard, and a Sync now. */}

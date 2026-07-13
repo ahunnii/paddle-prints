@@ -21,6 +21,7 @@ import { db } from "~/lib/offline/db";
 import { queuePaddle, savePoiQueued, syncQueue } from "~/lib/offline/sync";
 import { NavMap } from "~/components/record/nav-map";
 import { NavPoiLayer, type NavPoi } from "~/components/record/nav-poi-layer";
+import { CrewPicker } from "~/components/record/crew-picker";
 import { PoiPlacement } from "~/components/map/poi-placement";
 import { toast } from "~/components/ui/toaster";
 import { api } from "~/trpc/react";
@@ -41,6 +42,11 @@ export interface RecordRoute {
   /** The paddler's personal historical cruising speed for this route (see `routes.etaForUser`), fed
    * into the live ETA blend so it starts from a real number instead of the generic 3.0 mph default. */
   historicalSpeedMps?: number;
+  /** What to persist as the finished paddle's `routeId`. Equal to `id` for a real saved route; null
+   * when this `RecordRoute` was synthesized from something else (e.g. retracing another paddler's
+   * track via `?paddle=`) that isn't itself a saved route to point at. `id` is still used locally
+   * for checkpoint context-matching and the pre-start back link. */
+  saveRouteId: string | null;
 }
 
 function miles(m: number, dp = 2) {
@@ -81,6 +87,8 @@ function buildInput(
   tripType: TripType,
   id: string,
   note: string,
+  crewUserIds: string[],
+  guestNames: string[],
 ) {
   // Full fidelity into trackJson; ~10 m Douglas-Peucker into the stored geometry.
   const simplified = simplifyTrack(machine.track, 10);
@@ -101,6 +109,8 @@ function buildInput(
         : null,
     trackJson: machine.track.length > 0 ? machine.track : null,
     note: note.trim().length > 0 ? note.trim() : null,
+    crewUserIds: crewUserIds.length > 0 ? crewUserIds : undefined,
+    guestNames: guestNames.length > 0 ? guestNames : undefined,
   };
 }
 
@@ -140,6 +150,9 @@ export function RecordClient({ route }: { route: RecordRoute | null }) {
   const [savingPoi, setSavingPoi] = useState(false);
   const [poiError, setPoiError] = useState<string | null>(null);
   const [showNotes, setShowNotes] = useState(false);
+  const [showFinishSheet, setShowFinishSheet] = useState(false);
+  const [crewUserIds, setCrewUserIds] = useState<string[]>([]);
+  const [guestNames, setGuestNames] = useState<string[]>([]);
   const paddleId = useRef<string | null>(null);
 
   // Add-a-spot centers a crosshair over the map; save reads the map center and ALWAYS queues to
@@ -266,10 +279,12 @@ export function RecordClient({ route }: { route: RecordRoute | null }) {
     paddleId.current ??= crypto.randomUUID();
     const input = buildInput(
       state.machine,
-      route?.id ?? null,
+      route?.saveRouteId ?? null,
       tripType,
       paddleId.current,
       state.note,
+      crewUserIds,
+      guestNames,
     );
     await queuePaddle(input);
     clearCheckpoint();
@@ -280,10 +295,10 @@ export function RecordClient({ route }: { route: RecordRoute | null }) {
         : "Saved offline — will sync when online",
     );
     router.push(`/paddles/${input.id}`);
-  }, [route?.id, tripType, router]);
+  }, [route?.saveRouteId, tripType, router, crewUserIds, guestNames]);
 
-  const handleFinish = useCallback(() => {
-    if (!window.confirm("Finish and save this paddle?")) return;
+  const confirmFinish = useCallback(() => {
+    setShowFinishSheet(false);
     finish();
     void submit();
   }, [finish, submit]);
@@ -362,7 +377,16 @@ export function RecordClient({ route }: { route: RecordRoute | null }) {
     return (
       <main className="flex min-h-dvh flex-col bg-river-950 px-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-[max(1.5rem,env(safe-area-inset-top))] text-white">
         <div className="flex items-center justify-between">
-          <Link href={route ? `/routes/${route.id}` : "/"} className="text-river-300 text-sm font-semibold">
+          <Link
+            href={
+              route
+                ? route.saveRouteId
+                  ? `/routes/${route.id}`
+                  : `/paddles/${route.id}`
+                : "/"
+            }
+            className="text-river-300 text-sm font-semibold"
+          >
             ← Back
           </Link>
           <span className="text-river-400 text-xs uppercase tracking-widest">
@@ -606,13 +630,51 @@ export function RecordClient({ route }: { route: RecordRoute | null }) {
         )}
         <button
           type="button"
-          onClick={handleFinish}
+          onClick={() => setShowFinishSheet(true)}
           disabled={isFinished}
           className="min-h-14 flex-1 rounded-2xl bg-sunset-500 text-lg font-extrabold text-white active:scale-[0.98] active:bg-sunset-600 disabled:opacity-60"
         >
           {isFinished ? "Saving…" : "Finish"}
         </button>
       </div>
+
+      {/* Finish confirmation sheet: last stop before the paddle is queued/saved. Crew picker is
+          collapsed by default so a solo paddle stays a one-tap finish. */}
+      {showFinishSheet ? (
+        <div className="absolute inset-0 z-20 flex flex-col justify-end bg-black/90 pb-[max(1rem,env(safe-area-inset-bottom))]">
+          <div className="flex flex-col gap-4 px-4 pt-4">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-bold text-white">Finish and save?</h2>
+              <button
+                type="button"
+                onClick={() => setShowFinishSheet(false)}
+                className="rounded-full bg-white/15 px-4 py-1.5 text-sm font-bold text-white active:bg-white/25"
+              >
+                Cancel
+              </button>
+            </div>
+
+            <p className="text-sm text-white/60">
+              {distanceMi} mi · {formatElapsed(machine.elapsedS)}
+            </p>
+
+            <CrewPicker
+              selectedUserIds={crewUserIds}
+              onChangeSelectedUserIds={setCrewUserIds}
+              guestNames={guestNames}
+              onChangeGuestNames={setGuestNames}
+            />
+
+            <button
+              type="button"
+              onClick={confirmFinish}
+              className="min-h-14 rounded-2xl bg-sunset-500 text-lg font-extrabold text-white active:scale-[0.98] active:bg-sunset-600"
+            >
+              Save paddle
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       {/* Notes bottom sheet. Every keystroke hits the zustand store, which the 15s checkpoint
           interval (and pause/visibility saves) persists -- no extra plumbing. */}

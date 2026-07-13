@@ -9,6 +9,7 @@ import {
 } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 
+import { ReactionBar } from "../../components/social/reaction-bar";
 import { Avatar } from "../../components/ui/avatar";
 import {
   formatDateTime,
@@ -24,6 +25,7 @@ import {
 import { api, type RouterOutputs } from "../../lib/trpc";
 
 type FeedItem = RouterOutputs["paddles"]["feed"][number];
+type FeedFilter = "all" | "teams";
 
 /**
  * The paddles queued on this device but not yet on the server. Polled on screen focus, and every 5s
@@ -99,6 +101,38 @@ function tripTypeLabel(tripType: FeedItem["tripType"]) {
   return tripType === "river" ? "River" : "Flat water";
 }
 
+/** All / My Teams segmented toggle, styled like the My Routes / Community pill on the Routes tab
+ * (ScopeToggle in routes/index.tsx). */
+function FilterToggle({
+  filter,
+  onChange,
+}: {
+  filter: FeedFilter;
+  onChange: (filter: FeedFilter) => void;
+}) {
+  return (
+    <View className="flex-row items-center gap-1 self-start rounded-full bg-river-100 p-1">
+      {(["all", "teams"] as const).map((f) => (
+        <Pressable
+          key={f}
+          onPress={() => onChange(f)}
+          className={`min-h-11 justify-center rounded-full px-4 ${
+            filter === f ? "bg-river-600" : ""
+          }`}
+        >
+          <Text
+            className={`text-sm font-semibold ${
+              filter === f ? "text-white" : "text-river-700"
+            }`}
+          >
+            {f === "all" ? "All" : "My Teams"}
+          </Text>
+        </Pressable>
+      ))}
+    </View>
+  );
+}
+
 function FeedCard({ item }: { item: FeedItem }) {
   const router = useRouter();
   return (
@@ -137,12 +171,27 @@ function FeedCard({ item }: { item: FeedItem }) {
       <Text className="mt-1 text-xs text-river-400">
         {formatDateTime(item.startedAt)}
       </Text>
+
+      <View className="mt-3 flex-row items-center justify-between gap-2">
+        {/* Own rounded Pressable chips inside this card's Pressable -- RN gives the touch to the
+         * innermost one, so these presses never trigger the card's navigation onPress. */}
+        <ReactionBar
+          paddleId={item.id}
+          reactions={item.reactions ?? {}}
+          myReactions={item.myReactions ?? []}
+          compact
+        />
+        <Text className="text-xs font-semibold text-river-500">
+          💬 {item.commentCount ?? 0}
+        </Text>
+      </View>
     </Pressable>
   );
 }
 
 export default function FeedScreen() {
-  const feed = api.paddles.feed.useQuery();
+  const [filter, setFilter] = useState<FeedFilter>("all");
+  const feed = api.paddles.feed.useQuery({ filter });
   const { rows: pendingRows, refresh: refreshPending } = usePendingPaddles();
 
   const onRefresh = useCallback(() => {
@@ -176,10 +225,11 @@ export default function FeedScreen() {
     // paddler with no signal saves a trip and then can't see it anywhere on this tab.
     return (
       <View className="flex-1 bg-river-50">
-        <View className="p-4 pb-0">
+        <View className="gap-3 p-4 pb-0">
           <Text className="text-2xl font-extrabold tracking-tight text-river-900">
             Recent Crew Activity
           </Text>
+          <FilterToggle filter={filter} onChange={setFilter} />
         </View>
         {visiblePending.length > 0 ? (
           <View className="gap-3 p-4 pb-0">{pendingHeader}</View>
@@ -211,6 +261,7 @@ export default function FeedScreen() {
             <Text className="text-2xl font-extrabold tracking-tight text-river-900">
               Recent Crew Activity
             </Text>
+            <FilterToggle filter={filter} onChange={setFilter} />
             {pendingHeader}
           </View>
         }
