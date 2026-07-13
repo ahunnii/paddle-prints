@@ -1,8 +1,9 @@
 import { TRPCError } from "@trpc/server";
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import type { LineString } from "geojson";
 import { z } from "zod";
 
+import { routes } from "@paddle-prints/db/schema";
 import { createTRPCRouter, protectedProcedure } from "../trpc";
 
 /** A `{ lng, lat }` coordinate, validated to real-world ranges. */
@@ -31,16 +32,62 @@ interface SnapRow {
   snap_lat: number;
 }
 
+/** One oriented step of the assembled path, used to derive per-leg flow direction. */
+interface FlowStep {
+  /** How the edge geometry was traversed: forward (downstream) or reversed (upstream). */
+  forward: boolean;
+  /** Geodesic length of this (oriented) step in metres. */
+  lengthM: number;
+  /** OSM waterway class of the edge (`river` | `stream` | `canal`). */
+  waterway: string | null;
+}
+
 /** The assembled-geometry shape returned by both the same-edge and pgRouting queries. */
 interface AssemblyRow {
   geojson: string | null;
   gtype: string | null;
   distance_m: number | null;
+  /** Per-step orientation details, in path order, for building {@link FlowLeg}s. */
+  steps: FlowStep[] | null;
+}
+
+/** A contiguous stretch of the route paddled in one flow direction, in metres from the start. */
+interface FlowLeg {
+  startM: number;
+  endM: number;
+  direction: "downstream" | "upstream" | "unknown";
 }
 
 interface LatLng {
   lng: number;
   lat: number;
+}
+
+/**
+ * Collapse the ordered oriented steps into flow legs, accumulating cumulative metres and merging
+ * contiguous same-direction steps. Forward traversal = paddling downstream, reversed = upstream;
+ * a `canal`-class edge has no reliable digitised flow direction, so it reports `unknown`.
+ */
+function stepsToLegs(steps: FlowStep[]): FlowLeg[] {
+  const legs: FlowLeg[] = [];
+  let cumM = 0;
+  for (const step of steps) {
+    const direction: FlowLeg["direction"] =
+      step.waterway === "canal"
+        ? "unknown"
+        : step.forward
+          ? "downstream"
+          : "upstream";
+    const startM = cumM;
+    cumM += step.lengthM;
+    const last = legs[legs.length - 1];
+    if (last && last.direction === direction) {
+      last.endM = cumM;
+    } else {
+      legs.push({ startM, endM: cumM, direction });
+    }
+  }
+  return legs;
 }
 
 function snapTooFar(which: "A" | "B"): TRPCError {
@@ -59,7 +106,13 @@ function finalize(
   row: AssemblyRow | undefined,
   snappedA: LatLng,
   snappedB: LatLng,
-): { snappedA: LatLng; snappedB: LatLng; geometry: LineString; distanceM: number } {
+): {
+  snappedA: LatLng;
+  snappedB: LatLng;
+  geometry: LineString;
+  distanceM: number;
+  legs: FlowLeg[];
+} {
   // Empty pgRouting result -> the two points aren't connected on the graph.
   if (!row || row.geojson == null || row.distance_m == null) {
     throw new TRPCError({
@@ -91,7 +144,177 @@ function finalize(
     snappedB,
     geometry: JSON.parse(row.geojson) as LineString,
     distanceM: row.distance_m,
+    legs: stepsToLegs(row.steps ?? []),
   };
+}
+
+// --- USGS live river conditions ---------------------------------------------
+
+/** The shape returned by {@link riversRouter.conditions} when a gauge is found. */
+interface RiverConditions {
+  siteName: string;
+  siteId: string;
+  dischargeCfs: number | null;
+  gaugeHeightFt: number | null;
+  observedAt: string;
+  distanceKm: number;
+}
+
+/** Degrees of padding added around a route's bbox when searching for nearby gauges. */
+const USGS_BBOX_PAD_DEG = 0.15;
+/** USGS caps a bBox query at 1x1 degrees here (well under its own area limit). */
+const USGS_BBOX_MAX_DEG = 1;
+/** Cache USGS responses for 15 minutes -- instantaneous values update every ~15-60 min. */
+const USGS_CACHE_TTL_MS = 15 * 60 * 1000;
+/** Abort a slow USGS request rather than hang the tRPC call. */
+const USGS_TIMEOUT_MS = 8000;
+
+/** A USGS bBox (west,south,east,north), already padded and clamped, to 7 decimal places. */
+interface UsgsBbox {
+  minLng: number;
+  minLat: number;
+  maxLng: number;
+  maxLat: number;
+}
+
+/** Module-level cache of parsed USGS site lists, keyed by the rounded bbox string. */
+const usgsCache = new Map<string, { at: number; sites: UsgsSite[] }>();
+
+/** A single gauge site distilled from the USGS timeSeries payload. */
+interface UsgsSite {
+  siteId: string;
+  siteName: string;
+  lat: number;
+  lng: number;
+  dischargeCfs: number | null;
+  gaugeHeightFt: number | null;
+  observedAt: string | null;
+}
+
+/** Great-circle distance in kilometres between two lng/lat points. */
+function haversineKm(a: LatLng, b: LatLng): number {
+  const R = 6371;
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const dLat = toRad(b.lat - a.lat);
+  const dLng = toRad(b.lng - a.lng);
+  const lat1 = toRad(a.lat);
+  const lat2 = toRad(b.lat);
+  const h =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.asin(Math.sqrt(h));
+}
+
+/** Pad a route bbox by {@link USGS_BBOX_PAD_DEG} then clamp each side to {@link USGS_BBOX_MAX_DEG}. */
+function padBbox(b: UsgsBbox): UsgsBbox {
+  const clampSpan = (lo: number, hi: number): [number, number] => {
+    let min = lo - USGS_BBOX_PAD_DEG;
+    let max = hi + USGS_BBOX_PAD_DEG;
+    if (max - min > USGS_BBOX_MAX_DEG) {
+      const mid = (min + max) / 2;
+      min = mid - USGS_BBOX_MAX_DEG / 2;
+      max = mid + USGS_BBOX_MAX_DEG / 2;
+    }
+    return [min, max];
+  };
+  const [minLng, maxLng] = clampSpan(b.minLng, b.maxLng);
+  const [minLat, maxLat] = clampSpan(b.minLat, b.maxLat);
+  return { minLng, minLat, maxLng, maxLat };
+}
+
+/** USGS wants at most 7 decimal places in bBox coordinates. */
+const round7 = (n: number): string => n.toFixed(7);
+
+/** Minimal typed view of the parts of the USGS instantaneous-values JSON we read. */
+interface UsgsResponse {
+  value?: {
+    timeSeries?: {
+      sourceInfo?: {
+        siteName?: string;
+        siteCode?: { value?: string }[];
+        geoLocation?: { geogLocation?: { latitude?: number; longitude?: number } };
+      };
+      variable?: { variableCode?: { value?: string }[] };
+      values?: { value?: { value?: string; dateTime?: string }[] }[];
+    }[];
+  };
+}
+
+/**
+ * Fetch and parse active USGS gauges within `bbox`, grouping the 00060 (discharge, cfs) and 00065
+ * (gauge height, ft) parameter series per site. Cached for {@link USGS_CACHE_TTL_MS}; any network
+ * or parse failure yields an empty list (never throws to the client).
+ */
+async function fetchUsgsSites(bbox: UsgsBbox): Promise<UsgsSite[]> {
+  const bboxStr = [
+    round7(bbox.minLng),
+    round7(bbox.minLat),
+    round7(bbox.maxLng),
+    round7(bbox.maxLat),
+  ].join(",");
+
+  const cached = usgsCache.get(bboxStr);
+  if (cached && Date.now() - cached.at < USGS_CACHE_TTL_MS) {
+    return cached.sites;
+  }
+
+  const url =
+    `https://waterservices.usgs.gov/nwis/iv/?format=json&bBox=${bboxStr}` +
+    `&parameterCd=00060,00065&siteStatus=active`;
+
+  let json: UsgsResponse;
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(USGS_TIMEOUT_MS) });
+    if (!res.ok) {
+      console.warn(`USGS conditions request failed: HTTP ${res.status}`);
+      return [];
+    }
+    json = (await res.json()) as UsgsResponse;
+  } catch (err) {
+    console.warn("USGS conditions request errored:", err);
+    return [];
+  }
+
+  const bySite = new Map<string, UsgsSite>();
+  for (const ts of json.value?.timeSeries ?? []) {
+    const siteId = ts.sourceInfo?.siteCode?.[0]?.value;
+    const geo = ts.sourceInfo?.geoLocation?.geogLocation;
+    if (!siteId || geo?.latitude == null || geo.longitude == null) continue;
+
+    const paramCd = ts.variable?.variableCode?.[0]?.value;
+    const series = ts.values?.[0]?.value ?? [];
+    const latest = series[series.length - 1];
+    if (!latest || latest.value == null) continue;
+    const num = Number(latest.value);
+    // USGS uses -999999 as a no-data sentinel.
+    if (!Number.isFinite(num) || num <= -999999) continue;
+
+    let site = bySite.get(siteId);
+    if (!site) {
+      site = {
+        siteId,
+        siteName: ts.sourceInfo?.siteName ?? siteId,
+        lat: geo.latitude,
+        lng: geo.longitude,
+        dischargeCfs: null,
+        gaugeHeightFt: null,
+        observedAt: null,
+      };
+      bySite.set(siteId, site);
+    }
+
+    if (paramCd === "00060") site.dischargeCfs = num;
+    else if (paramCd === "00065") site.gaugeHeightFt = num;
+
+    // Track the most recent observation time across the site's parameters.
+    if (latest.dateTime && (!site.observedAt || latest.dateTime > site.observedAt)) {
+      site.observedAt = latest.dateTime;
+    }
+  }
+
+  const sites = [...bySite.values()];
+  usgsCache.set(bboxStr, { at: Date.now(), sites });
+  return sites;
 }
 
 export const riversRouter = createTRPCRouter({
@@ -151,18 +374,27 @@ export const riversRouter = createTRPCRouter({
         const fb = snapB.fraction;
         const sameEdge = (await ctx.db.execute(sql`
           WITH sub AS (
-            SELECT CASE
-                     WHEN ${fa}::float8 <= ${fb}::float8
-                       THEN ST_LineSubstring(geom, ${fa}::float8, ${fb}::float8)
-                       ELSE ST_Reverse(ST_LineSubstring(geom, ${fb}::float8, ${fa}::float8))
-                   END AS line
+            SELECT
+              CASE
+                WHEN ${fa}::float8 <= ${fb}::float8
+                  THEN ST_LineSubstring(geom, ${fa}::float8, ${fb}::float8)
+                  ELSE ST_Reverse(ST_LineSubstring(geom, ${fb}::float8, ${fa}::float8))
+              END AS line,
+              -- fa <= fb means we paddle along the edge's stored (downstream) direction.
+              (${fa}::float8 <= ${fb}::float8) AS forward,
+              waterway
             FROM waterway_edges
             WHERE id = ${snapA.edge_id}::bigint
           )
           SELECT
             ST_AsGeoJSON(line)                                    AS geojson,
             ST_GeometryType(line)                                 AS gtype,
-            (${snapA.cost_m}::float8 * abs(${fb}::float8 - ${fa}::float8)) AS distance_m
+            (${snapA.cost_m}::float8 * abs(${fb}::float8 - ${fa}::float8)) AS distance_m,
+            json_build_array(json_build_object(
+              'forward', forward,
+              'lengthM', ST_Length(line::geography),
+              'waterway', waterway
+            ))                                                    AS steps
           FROM sub
         `)) as unknown as AssemblyRow[];
 
@@ -213,15 +445,16 @@ export const riversRouter = createTRPCRouter({
           ),
           seg AS (
             SELECT s.path_seq, s.from_node, s.to_node,
-                   w.geom, w.source, w.target, fr.fa, fr.fb
+                   w.geom, w.source, w.target, w.waterway, fr.fa, fr.fb
             FROM steps s
             JOIN waterway_edges w ON w.id = s.edge
             CROSS JOIN fr
             WHERE s.edge <> -1  -- the terminal row (edge = -1) carries no geometry
           ),
-          -- Orient every segment so its start touches the previous segment's end.
+          -- Orient every segment so its start touches the previous segment's end. The forward flag
+          -- is the non-ST_Reverse branch of the same CASE: forward = downstream, reversed = upstream.
           oriented AS (
-            SELECT path_seq,
+            SELECT path_seq, waterway,
               CASE
                 -- first edge: enter at fraction fa, exit toward the next vertex
                 WHEN from_node = -1 THEN
@@ -235,20 +468,102 @@ export const riversRouter = createTRPCRouter({
                 ELSE
                   CASE WHEN from_node = source THEN geom
                        ELSE ST_Reverse(geom) END
-              END AS g
+              END AS g,
+              CASE
+                WHEN from_node = -1 THEN (to_node = target)
+                WHEN to_node = -2 THEN (from_node = source)
+                ELSE (from_node = source)
+              END AS forward
             FROM seg
           ),
+          measured AS (
+            SELECT path_seq, waterway, g, forward,
+                   ST_Length(g::geography) AS length_m
+            FROM oriented
+          ),
           merged AS (
-            SELECT ST_MakeLine(g ORDER BY path_seq) AS line FROM oriented
+            SELECT ST_MakeLine(g ORDER BY path_seq) AS line FROM measured
           )
           SELECT
-            ST_AsGeoJSON(line)                AS geojson,
-            ST_GeometryType(line)             AS gtype,
-            (SELECT max(agg_cost) FROM route) AS distance_m
-          FROM merged
+            ST_AsGeoJSON((SELECT line FROM merged))    AS geojson,
+            ST_GeometryType((SELECT line FROM merged)) AS gtype,
+            (SELECT max(agg_cost) FROM route)          AS distance_m,
+            (SELECT json_agg(json_build_object(
+               'forward', forward,
+               'lengthM', length_m,
+               'waterway', waterway
+             ) ORDER BY path_seq) FROM measured)       AS steps
         `)) as unknown as AssemblyRow[];
       });
 
       return finalize(assembled[0], snappedA, snappedB);
+    }),
+
+  /**
+   * Live USGS gauge conditions for a river route: the nearest active gauge's latest discharge
+   * (cfs) and gauge height (ft). Returns `null` for non-river routes or when no gauge is found;
+   * network errors degrade to `null` rather than throwing.
+   */
+  conditions: protectedProcedure
+    .input(z.object({ routeId: z.string().uuid() }))
+    .query(async ({ ctx, input }): Promise<RiverConditions | null> => {
+      // Pull the route's type, bbox, and midpoint in one shot.
+      const rows = (await ctx.db.execute(sql`
+        SELECT
+          ${routes.type}                                   AS type,
+          ST_XMin(${routes.geom})                          AS min_lng,
+          ST_YMin(${routes.geom})                          AS min_lat,
+          ST_XMax(${routes.geom})                          AS max_lng,
+          ST_YMax(${routes.geom})                          AS max_lat,
+          ST_X(ST_LineInterpolatePoint(${routes.geom}, 0.5)) AS mid_lng,
+          ST_Y(ST_LineInterpolatePoint(${routes.geom}, 0.5)) AS mid_lat
+        FROM ${routes}
+        WHERE ${routes.id} = ${input.routeId}
+      `)) as unknown as {
+        type: string;
+        min_lng: number;
+        min_lat: number;
+        max_lng: number;
+        max_lat: number;
+        mid_lng: number;
+        mid_lat: number;
+      }[];
+
+      const route = rows[0];
+      if (!route) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Route not found" });
+      }
+      if (route.type !== "river") return null;
+
+      const bbox = padBbox({
+        minLng: route.min_lng,
+        minLat: route.min_lat,
+        maxLng: route.max_lng,
+        maxLat: route.max_lat,
+      });
+      const midpoint: LatLng = { lng: route.mid_lng, lat: route.mid_lat };
+
+      const sites = await fetchUsgsSites(bbox);
+      if (sites.length === 0) return null;
+
+      // Pick the gauge nearest the route's midpoint.
+      let nearest = sites[0]!;
+      let nearestKm = haversineKm(midpoint, { lng: nearest.lng, lat: nearest.lat });
+      for (const site of sites.slice(1)) {
+        const km = haversineKm(midpoint, { lng: site.lng, lat: site.lat });
+        if (km < nearestKm) {
+          nearest = site;
+          nearestKm = km;
+        }
+      }
+
+      return {
+        siteName: nearest.siteName,
+        siteId: nearest.siteId,
+        dischargeCfs: nearest.dischargeCfs,
+        gaugeHeightFt: nearest.gaugeHeightFt,
+        observedAt: nearest.observedAt ?? new Date().toISOString(),
+        distanceKm: nearestKm,
+      };
     }),
 });

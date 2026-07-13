@@ -243,6 +243,7 @@ function usePaddleForRecording(paddleId: string | null | undefined): {
     distanceM: paddle.distanceM,
     description: null,
     difficulty: null,
+    flowLegs: null,
     createdBy: paddle.userId,
     createdAt: paddle.startedAt,
     creatorName: paddle.userName,

@@ -1,0 +1,1 @@
+ALTER TABLE "paddle-prints_routes" ADD COLUMN "flow_legs" jsonb;

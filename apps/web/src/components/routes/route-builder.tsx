@@ -427,6 +427,29 @@ export function RouteBuilder() {
 
   const distanceMiles = mode === "river" ? riverMiles : waypointMiles;
 
+  // Compact aggregate flow summary for the builder (e.g. "↓ 3.1 mi · ↑ 0.4 mi") -- unlike the
+  // per-leg narration on route detail (~/components/routes/flow-narration.ts), this just totals
+  // each direction's length since the builder only has room for one line.
+  const flowSummary = useMemo(() => {
+    const legs = riverData?.legs;
+    if (!legs || legs.length === 0) return null;
+    const totals = { downstream: 0, upstream: 0, unknown: 0 };
+    for (const leg of legs) {
+      totals[leg.direction] += leg.endM - leg.startM;
+    }
+    const parts: string[] = [];
+    if (totals.downstream > 0) {
+      parts.push(`↓ ${(totals.downstream / METERS_PER_MILE).toFixed(1)} mi`);
+    }
+    if (totals.upstream > 0) {
+      parts.push(`↑ ${(totals.upstream / METERS_PER_MILE).toFixed(1)} mi`);
+    }
+    if (totals.unknown > 0) {
+      parts.push(`· ${(totals.unknown / METERS_PER_MILE).toFixed(1)} mi unknown`);
+    }
+    return parts.length > 0 ? parts.join(" · ") : null;
+  }, [riverData]);
+
   const canSave =
     name.trim().length > 0 &&
     (mode === "river" ? !!riverData : waypoints.length >= 2);
@@ -447,6 +470,7 @@ export function RouteBuilder() {
             (c) => [c[0], c[1]] as [number, number],
           ),
         },
+        flowLegs: riverData.legs ?? undefined,
       });
     } else {
       createRoute.mutate({
@@ -538,6 +562,12 @@ export function RouteBuilder() {
                 : ""}
             </p>
           </div>
+
+          {mode === "river" && flowSummary ? (
+            <p className="text-river-500 -mt-2 text-right text-xs font-medium">
+              {flowSummary}
+            </p>
+          ) : null}
 
           {mode === "river" && riverErrorCode ? (
             <div className="flex flex-col gap-2 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">

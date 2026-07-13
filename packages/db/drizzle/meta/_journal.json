@@ -43,6 +43,13 @@
       "when": 1783903982019,
       "tag": "0005_confused_raider",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1783905628656,
+      "tag": "0006_light_wither",
+      "breakpoints": true
     }
   ]
 }

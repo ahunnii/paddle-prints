@@ -71,6 +71,11 @@ export const routes = createTable(
     shape: routeShape("shape").notNull().default("one_way"),
     geom: lineString("geom").notNull(),
     distanceM: real("distance_m").notNull(),
+    // Per-leg paddling direction along the route, in route order. Each leg spans the metre
+    // range [startM, endM) measured from the start of `geom`. Only populated for river routes.
+    flowLegs: jsonb("flow_legs").$type<
+      { startM: number; endM: number; direction: "downstream" | "upstream" | "unknown" }[]
+    >(),
     description: text("description"),
     difficulty: routeDifficulty("difficulty"),
     createdBy: text("created_by")

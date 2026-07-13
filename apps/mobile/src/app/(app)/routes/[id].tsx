@@ -34,8 +34,14 @@ import { LocateFab } from "../../../components/map/locate-fab";
 import { PoiDetailCard } from "../../../components/map/poi-detail-card";
 import { PoiPill } from "../../../components/map/poi-pill";
 import { DifficultyBadge } from "../../../components/routes/difficulty-badge";
+import { narrateFlowLegs } from "../../../components/routes/flow-narration";
 import { authClient } from "../../../lib/auth-client";
-import { formatBytes, formatHM, formatRouteDistance } from "../../../lib/format";
+import {
+  formatBytes,
+  formatHM,
+  formatRelativeTime,
+  formatRouteDistance,
+} from "../../../lib/format";
 import { boundsOf } from "../../../lib/geo";
 import {
   deleteTrip,
@@ -281,6 +287,30 @@ export default function RouteDetailScreen() {
           </View>
         </View>
 
+        {route.flowLegs && route.flowLegs.length > 0 ? (
+          <View className="gap-2 rounded-2xl bg-river-50 p-4">
+            <Text className="text-xs uppercase tracking-wide text-river-500">Flow</Text>
+            <View className="gap-0.5">
+              {narrateFlowLegs(route.flowLegs, route.shape).map((line, i) => (
+                <Text
+                  key={i}
+                  className={
+                    line === "then back:"
+                      ? "mt-1 text-xs font-semibold uppercase tracking-wide text-river-400"
+                      : "text-sm font-medium text-river-800"
+                  }
+                >
+                  {line}
+                </Text>
+              ))}
+            </View>
+            <Text className="text-xs text-river-500">
+              Flow directions come from river mapping — double-check conditions before you launch.
+            </Text>
+            <RiverConditionsLine routeId={route.id} />
+          </View>
+        ) : null}
+
         {etaQuery.data ? (
           <YourPaceCard eta={etaQuery.data} shape={route.shape} routeType={route.type} />
         ) : etaQuery.isError ? (
@@ -361,6 +391,34 @@ export default function RouteDetailScreen() {
         </View>
       </ScrollView>
     </View>
+  );
+}
+
+/**
+ * Live USGS gauge conditions, shown at the foot of the Flow card. Mirrors
+ * apps/web/src/components/routes/river-conditions.tsx. Always reads straight from the network --
+ * this screen has no offline-snapshot fallback for `routes.byId` (unlike record.tsx's
+ * `useRouteForRecording`), so `route` is only ever populated once `routeQuery` succeeds over the
+ * network; there is no "showing a snapshot" state on this screen to hide conditions for.
+ */
+function RiverConditionsLine({ routeId }: { routeId: string }) {
+  const { data, isPending } = api.rivers.conditions.useQuery(
+    { routeId },
+    { staleTime: 10 * 60_000 },
+  );
+
+  if (isPending) {
+    return <View className="h-3 w-2/3 rounded bg-river-200" />;
+  }
+  if (!data) return null;
+
+  return (
+    <Text className="text-xs text-river-600">
+      🌊 {data.siteName} ·{" "}
+      {data.dischargeCfs != null ? `${data.dischargeCfs} cfs` : "cfs —"} ·{" "}
+      {data.gaugeHeightFt != null ? `${data.gaugeHeightFt} ft` : "ft —"} · as of{" "}
+      {formatRelativeTime(data.observedAt)} · gauge {data.distanceKm.toFixed(1)} km away
+    </Text>
   );
 }
 

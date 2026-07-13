@@ -76,6 +76,19 @@ export function formatHM(totalS: number): string {
   return `${h}:${String(m).padStart(2, "0")}`;
 }
 
+/** e.g. "5 min ago", "2 hr ago", "3 days ago" -- for the river-conditions "as of" line. Mirrors the
+ * inline `formatRelativeTime` in apps/web/src/components/routes/river-conditions.tsx. */
+export function formatRelativeTime(iso: string): string {
+  const ms = Date.now() - new Date(iso).getTime();
+  const minutes = Math.round(ms / 60_000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours} hr ago`;
+  const days = Math.round(hours / 24);
+  return `${days} day${days === 1 ? "" : "s"} ago`;
+}
+
 /** Human-readable byte size, e.g. "43.2 MB". Mirrors apps/web/src/lib/offline/format.ts. */
 export function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;

@@ -8,6 +8,8 @@ import { DeleteRouteButton } from "~/components/routes/delete-route-button";
 import { DifficultyBadge } from "~/components/routes/difficulty-badge";
 import { DifficultyEditor } from "~/components/routes/difficulty-editor";
 import { DownloadTripButton } from "~/components/offline/download-trip-button";
+import { narrateFlowLegs } from "~/components/routes/flow-narration";
+import { RiverConditions } from "~/components/routes/river-conditions";
 import { RouteMap } from "~/components/routes/route-map";
 import { YourPaceCard } from "~/components/routes/your-pace-card";
 import { poiHeadline, poiMeta } from "~/lib/pois";
@@ -118,6 +120,33 @@ export default async function RouteDetailPage({
               </p>
             </div>
           </div>
+
+          {route.flowLegs && route.flowLegs.length > 0 ? (
+            <div className="bg-river-50 flex flex-col gap-2 rounded-2xl p-3">
+              <p className="text-river-500 text-xs uppercase tracking-wide">
+                Flow
+              </p>
+              <ul className="flex flex-col gap-0.5">
+                {narrateFlowLegs(route.flowLegs, route.shape).map((line, i) => (
+                  <li
+                    key={i}
+                    className={
+                      line === "then back:"
+                        ? "text-river-400 mt-1 text-xs font-semibold uppercase tracking-wide"
+                        : "text-river-800 text-sm font-medium"
+                    }
+                  >
+                    {line}
+                  </li>
+                ))}
+              </ul>
+              <p className="text-river-500 text-xs">
+                Flow directions come from river mapping — double-check
+                conditions before you launch.
+              </p>
+              <RiverConditions routeId={route.id} />
+            </div>
+          ) : null}
 
           <YourPaceCard
             eta={{

@@ -50,6 +50,17 @@ export const routesRouter = createTRPCRouter({
         geometry: lineStringGeometry,
         description: z.string().trim().max(2000).optional(),
         difficulty: z.enum(routeDifficulty.enumValues).optional(),
+        // Per-leg flow directions from `rivers.route`, stored as-is for river routes.
+        flowLegs: z
+          .array(
+            z.object({
+              startM: z.number().min(0),
+              endM: z.number().min(0),
+              direction: z.enum(["downstream", "upstream", "unknown"]),
+            }),
+          )
+          .max(200)
+          .optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -67,6 +78,7 @@ export const routesRouter = createTRPCRouter({
               ? input.description
               : null,
           difficulty: input.difficulty,
+          flowLegs: input.flowLegs ?? null,
           // Never trust a client-supplied distance -- recompute it authoritatively from the
           // submitted geometry using a geography cast (accounts for the earth's curvature).
           distanceM: sql<number>`ST_Length(ST_GeomFromGeoJSON(${geometryJson})::geography)`,
@@ -132,6 +144,7 @@ export const routesRouter = createTRPCRouter({
           shape: routes.shape,
           geom: routes.geom,
           distanceM: routes.distanceM,
+          flowLegs: routes.flowLegs,
           description: routes.description,
           difficulty: routes.difficulty,
           createdBy: routes.createdBy,
