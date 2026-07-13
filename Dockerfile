@@ -117,6 +117,10 @@ COPY --from=builder --chown=nextjs:nodejs /app/packages/db/drizzle ./packages/db
 COPY --chown=nextjs:nodejs docker-entrypoint.sh ./docker-entrypoint.sh
 RUN chmod +x ./docker-entrypoint.sh
 
+# Writable home for user-uploaded avatars (UPLOADS_DIR). Owned by the runtime user so the named
+# volume mounted here inherits the right ownership on first use.
+RUN mkdir -p /uploads && chown nextjs:nodejs /uploads
+
 USER nextjs
 
 EXPOSE 3000

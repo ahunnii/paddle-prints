@@ -16,10 +16,14 @@ services:
       # Source archive for per-trip offline extracts, read from the shared tiles volume (mounted
       # read-only below — the app only ever reads it; extracts are written to the container tmpdir).
       TILES_ARCHIVE_PATH: /tiles/michigan.pmtiles
+      # User-uploaded avatars land here (see apps/web/src/app/api/avatars/). Backed by the
+      # `uploadsdata` volume below so photos survive redeploys.
+      UPLOADS_DIR: /uploads
     volumes:
       # The same volume the `tiles` service populates, mounted read-only so the app can `pmtiles
       # extract` per-trip corridors from michigan.pmtiles without any risk of mutating it.
       - tilesdata:/tiles:ro
+      - uploadsdata:/uploads
     depends_on:
       - db
 
@@ -48,3 +52,4 @@ services:
 volumes:
   pgdata:
   tilesdata:
+  uploadsdata:
