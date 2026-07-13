@@ -88,7 +88,7 @@ export function ReviewClient() {
           </div>
         ) : (
           <>
-            <div className="relative h-64 overflow-hidden rounded-3xl">
+            <div className="relative h-80 overflow-hidden rounded-3xl">
               <ReviewMap tracks={tracks} className="h-full w-full" />
               {tracks.length === 0 ? (
                 <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-river-950/50">
