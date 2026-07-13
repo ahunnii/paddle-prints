@@ -21,17 +21,24 @@ export function FloatingHeader({
   right?: ReactNode;
   backConfirm?: string;
 }) {
-  const BackComponent = backConfirm ? ConfirmLink : Link;
+  const backClassName =
+    "text-river-700 hover:text-river-900 active:text-river-950 text-sm font-semibold";
   return (
     <div className="pointer-events-none absolute inset-x-0 top-0 flex justify-center p-[max(1rem,env(safe-area-inset-top))]">
       <div className="pointer-events-auto flex items-center gap-3 rounded-full bg-white/90 px-4 py-2 shadow-lg backdrop-blur">
-        <BackComponent
-          href={backHref}
-          className="text-river-700 hover:text-river-900 active:text-river-950 text-sm font-semibold"
-          confirmMessage={backConfirm}
-        >
-          ← {backLabel}
-        </BackComponent>
+        {backConfirm ? (
+          <ConfirmLink
+            href={backHref}
+            className={backClassName}
+            confirmMessage={backConfirm}
+          >
+            ← {backLabel}
+          </ConfirmLink>
+        ) : (
+          <Link href={backHref} className={backClassName}>
+            ← {backLabel}
+          </Link>
+        )}
         {title ? (
           <>
             <span className="text-river-200">|</span>
