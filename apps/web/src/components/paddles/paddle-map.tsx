@@ -4,6 +4,9 @@ import { useEffect, useState } from "react";
 import maplibregl, { type Map as MapLibreMap } from "maplibre-gl";
 
 import { BaseMap } from "~/components/map/base-map";
+import { PoiLayer, type PoiMapItem } from "~/components/map/poi-layer";
+import { addGeolocateControl } from "~/lib/map/geolocate-control";
+import { api } from "~/trpc/react";
 
 interface PaddleMapProps {
   /** The route the paddle followed, drawn underneath in river blue. */
@@ -11,6 +14,13 @@ interface PaddleMapProps {
   /** The actual recorded track, drawn on top in sunset orange. */
   trackCoords: Array<[number, number]> | null;
   className?: string;
+}
+
+interface Bbox {
+  west: number;
+  south: number;
+  east: number;
+  north: number;
 }
 
 const ROUTE_SRC = "paddle-route-line";
@@ -21,6 +31,9 @@ const TRACK_COLOR = "#f97316"; // sunset-500
 /** Summary map: the recorded track over the planned route, framed to the track. */
 export function PaddleMap({ routeCoords, trackCoords, className }: PaddleMapProps) {
   const [map, setMap] = useState<MapLibreMap | null>(null);
+  // This map is fitted-once-and-static (no pan/zoom-driven `moveend` like the community map), so
+  // POIs are fetched a single time for whatever bbox `fitBounds` settles on below -- not refetched.
+  const [bbox, setBbox] = useState<Bbox | null>(null);
 
   useEffect(() => {
     if (!map) return;
@@ -75,6 +88,11 @@ export function PaddleMap({ routeCoords, trackCoords, className }: PaddleMapProp
         if (last && frame.length > 1) {
           new maplibregl.Marker({ color: "#1e6079" }).setLngLat(last).addTo(map);
         }
+
+        // Read back the bbox `fitBounds` actually settled on (post-padding) for the one-shot POI
+        // fetch below.
+        const b = map.getBounds();
+        setBbox({ west: b.getWest(), south: b.getSouth(), east: b.getEast(), north: b.getNorth() });
       }
     };
 
@@ -82,5 +100,28 @@ export function PaddleMap({ routeCoords, trackCoords, className }: PaddleMapProp
     else map.once("load", setup);
   }, [map, routeCoords, trackCoords]);
 
-  return <BaseMap onMap={setMap} className={className ?? "h-full w-full"} />;
+  useEffect(() => {
+    if (!map) return;
+    return addGeolocateControl(map);
+  }, [map]);
+
+  const poisQuery = api.pois.inBbox.useQuery(bbox ?? { west: 0, south: 0, east: 0, north: 0 }, {
+    enabled: !!bbox,
+  });
+  const poiItems: PoiMapItem[] = (poisQuery.data ?? []).map((p) => ({
+    id: p.id,
+    category: p.category,
+    note: p.note,
+    lng: p.geom.coordinates[0]!,
+    lat: p.geom.coordinates[1]!,
+    creatorName: p.creatorName,
+    createdAt: p.createdAt,
+  }));
+
+  return (
+    <>
+      <BaseMap onMap={setMap} className={className ?? "h-full w-full"} />
+      <PoiLayer map={map} pois={poiItems} />
+    </>
+  );
 }

@@ -12,6 +12,10 @@ export interface NavPoi {
   note: string | null;
   lng: number;
   lat: number;
+  /** Not available for POIs embedded in an offline-downloaded route's corridor (that payload predates
+   * this field) -- undefined there, so the card just omits the attribution line. */
+  creatorName?: string;
+  createdAt?: string | Date;
 }
 
 interface NavPoiLayerProps {
@@ -114,6 +118,14 @@ export function NavPoiLayer({ map, pois, suspended = false }: NavPoiLayerProps) 
           <p className="text-sm font-bold text-white">{meta.label}</p>
           {selected.note ? (
             <p className="mt-0.5 text-xs text-white/70">{truncateNote(selected.note, 140)}</p>
+          ) : null}
+          {selected.creatorName ? (
+            <p className="mt-1 text-[11px] text-white/50">
+              {selected.creatorName}
+              {selected.createdAt
+                ? ` · ${new Date(selected.createdAt).toLocaleDateString()}`
+                : ""}
+            </p>
           ) : null}
         </div>
         <button

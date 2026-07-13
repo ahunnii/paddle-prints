@@ -65,6 +65,12 @@ export function PoiLayer({ map, pois, onDeleted }: PoiLayerProps) {
 
       const meta = poiMeta(poi.category);
       const el = createPoiMarkerEl(poi.category);
+      // Tagged so map-level `click` handlers (e.g. the route builder's tap-to-place-a-pin) can tell
+      // a marker tap from a bare map tap and ignore it. NOT a `stopPropagation()` on the element's
+      // own click -- maplibre's `Marker.setPopup()` toggles the popup via the MAP's `click` event
+      // (checking whether the DOM target fell inside the marker element), so blocking propagation
+      // here would silently break the popup everywhere this layer is used.
+      el.dataset.poiMarker = "true";
       const popup = new maplibregl.Popup({
         offset: 20,
         closeButton: true,

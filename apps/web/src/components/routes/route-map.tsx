@@ -6,6 +6,7 @@ import type { LineString } from "geojson";
 
 import { BaseMap } from "~/components/map/base-map";
 import { PoiLayer, type PoiMapItem } from "~/components/map/poi-layer";
+import { addGeolocateControl } from "~/lib/map/geolocate-control";
 
 interface RouteMapProps {
   geometry: LineString;
@@ -63,6 +64,11 @@ export function RouteMap({ geometry, shape, pois, className }: RouteMapProps) {
     if (map.loaded()) setup();
     else map.once("load", setup);
   }, [map, geometry, shape]);
+
+  useEffect(() => {
+    if (!map) return;
+    return addGeolocateControl(map);
+  }, [map]);
 
   return (
     <>

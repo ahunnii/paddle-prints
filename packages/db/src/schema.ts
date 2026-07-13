@@ -47,6 +47,16 @@ export const poiCategory = pgEnum("poi_category", [
 ]);
 
 /**
+ * How demanding a route is to paddle.
+ */
+export const routeDifficulty = pgEnum("route_difficulty", [
+  "easy",
+  "moderate",
+  "challenging",
+  "hard",
+]);
+
+/**
  * A saved paddle route -- either a river run or a waypoint-built lake/open-water route.
  *
  * `geom` stores only the OUTBOUND line; `distanceM` is the one-way distance. For
@@ -62,6 +72,7 @@ export const routes = createTable(
     geom: lineString("geom").notNull(),
     distanceM: real("distance_m").notNull(),
     description: text("description"),
+    difficulty: routeDifficulty("difficulty"),
     createdBy: text("created_by")
       .notNull()
       .references(() => user.id),

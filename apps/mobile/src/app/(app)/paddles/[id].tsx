@@ -30,6 +30,9 @@ import {
 import type { Feature, LineString } from "geojson";
 
 import { BaseMap } from "../../../components/map/base-map";
+import { LocateFab } from "../../../components/map/locate-fab";
+import { PoiDetailCard } from "../../../components/map/poi-detail-card";
+import { PoiPill } from "../../../components/map/poi-pill";
 import { CommentThread } from "../../../components/social/comment-thread";
 import { ReactionBar } from "../../../components/social/reaction-bar";
 import { Avatar } from "../../../components/ui/avatar";
@@ -41,7 +44,10 @@ import {
   formatSpeedMph,
 } from "../../../lib/format";
 import { boundsOf } from "../../../lib/geo";
-import { api } from "../../../lib/trpc";
+import { poiMeta } from "../../../lib/pois";
+import { api, type RouterOutputs } from "../../../lib/trpc";
+
+type PaddlePoi = RouterOutputs["pois"]["inBbox"][number];
 
 const ROUTE_COLOR = "#1f7796"; // river-600
 const TRACK_COLOR = "#f97316"; // sunset-500
@@ -59,6 +65,7 @@ export default function PaddleDetailScreen() {
   const cameraRef = useRef<CameraRef>(null);
   const scrollRef = useRef<ScrollView>(null);
   const [mapReady, setMapReady] = useState(false);
+  const [selectedPoi, setSelectedPoi] = useState<PaddlePoi | null>(null);
 
   const paddle = paddleQuery.data;
 
@@ -104,6 +111,19 @@ export default function PaddleDetailScreen() {
 
   const first = frame?.[0] ?? null;
   const last = frame && frame.length > 1 ? frame[frame.length - 1]! : null;
+
+  // A single bbox covering the whole track/route, queried once (not on every pan like the community
+  // map's viewport-driven inBbox) so the detail screen can show what POIs were nearby during the
+  // paddle.
+  const poiBbox = useMemo(() => {
+    if (!frame || frame.length === 0) return null;
+    const [west, south, east, north] = boundsOf(frame);
+    return { west, south, east, north };
+  }, [frame]);
+  const poisQuery = api.pois.inBbox.useQuery(poiBbox ?? { west: 0, south: 0, east: 0, north: 0 }, {
+    enabled: !!poiBbox,
+  });
+  const pois = poisQuery.data ?? [];
 
   if (paddleQuery.isPending) {
     return (
@@ -169,6 +189,23 @@ export default function PaddleDetailScreen() {
               <View className="h-4 w-4 rounded-full border-2 border-white bg-river-600" />
             </ViewAnnotation>
           ) : null}
+
+          {pois.map((poi) => {
+            const meta = poiMeta(poi.category);
+            const lng = poi.geom.coordinates[0]!;
+            const lat = poi.geom.coordinates[1]!;
+            return (
+              <ViewAnnotation
+                key={poi.id}
+                id={`paddle-detail-poi-${poi.id}`}
+                lngLat={[lng, lat]}
+                anchor="center"
+                onPress={() => setSelectedPoi(poi)}
+              >
+                <PoiPill emoji={meta.emoji} color={meta.color} />
+              </ViewAnnotation>
+            );
+          })}
         </BaseMap>
 
         <Pressable
@@ -179,6 +216,12 @@ export default function PaddleDetailScreen() {
         >
           <Ionicons name="chevron-back" size={22} color="#0d1f24" />
         </Pressable>
+
+        {!selectedPoi ? <LocateFab cameraRef={cameraRef} /> : null}
+
+        {selectedPoi ? (
+          <PoiDetailCard poi={selectedPoi} onClose={() => setSelectedPoi(null)} />
+        ) : null}
       </View>
 
       <ScrollView

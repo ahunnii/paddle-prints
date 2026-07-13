@@ -232,6 +232,8 @@ export function RecordClient({ route }: { route: RecordRoute | null }) {
         note: p.note,
         lng: p.geom.coordinates[0]!,
         lat: p.geom.coordinates[1]!,
+        creatorName: p.creatorName,
+        createdAt: p.createdAt,
       });
     }
     for (const p of pendingPois) {
@@ -242,6 +244,8 @@ export function RecordClient({ route }: { route: RecordRoute | null }) {
         note: p.input.note ?? null,
         lng: p.input.point.lng,
         lat: p.input.point.lat,
+        creatorName: "You",
+        createdAt: new Date(p.createdAt),
       });
     }
     return [...byId.values()];

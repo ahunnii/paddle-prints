@@ -10,6 +10,7 @@ import { PoiLayer, type PoiMapItem } from "~/components/map/poi-layer";
 import { PoiPlacement } from "~/components/map/poi-placement";
 import { PresenceLayer } from "~/components/map/presence-layer";
 import { toast } from "~/components/ui/toaster";
+import { addGeolocateControl } from "~/lib/map/geolocate-control";
 import { db } from "~/lib/offline/db";
 import { savePoiQueued } from "~/lib/offline/sync";
 import type { PoiCategory } from "~/lib/pois";
@@ -132,15 +133,7 @@ export function CommunityMapClient({ selfId }: CommunityMapClientProps) {
   // Built-in "locate me" button (button -> geolocate -> marker -> ease), free from MapLibre.
   useEffect(() => {
     if (!map) return;
-    const ctl = new maplibregl.GeolocateControl({
-      positionOptions: { enableHighAccuracy: true },
-      trackUserLocation: false,
-      showAccuracyCircle: true,
-    });
-    map.addControl(ctl, "top-right");
-    return () => {
-      map.removeControl(ctl);
-    };
+    return addGeolocateControl(map);
   }, [map]);
 
   const poiItems: PoiMapItem[] = (poisQuery.data ?? []).map((p) => ({

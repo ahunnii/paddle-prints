@@ -3,6 +3,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { DownloadedBadge } from "~/components/offline/downloaded-badge";
+import { DifficultyBadge } from "~/components/routes/difficulty-badge";
 import { auth } from "@paddle-prints/auth";
 import { api } from "~/trpc/server";
 
@@ -67,6 +68,7 @@ export default async function CommunityRoutesPage() {
                     <span className="text-river-950 flex items-center gap-2 font-semibold">
                       {route.name}
                       <DownloadedBadge routeId={route.id} />
+                      <DifficultyBadge difficulty={route.difficulty} />
                     </span>
                     <span className="text-river-600 text-sm">
                       {formatDistance(route.distanceM, route.shape)} &middot;{" "}

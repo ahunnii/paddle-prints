@@ -33,15 +33,18 @@ import {
   GeoJSONSource,
   Layer,
   ViewAnnotation,
+  type CameraRef,
   type MapRef,
   type PressEventWithFeatures,
 } from "@maplibre/maplibre-react-native";
 import type { FeatureCollection, LineString } from "geojson";
 
 import { BaseMap, type Bbox } from "../../components/map/base-map";
+import { LocateFab } from "../../components/map/locate-fab";
+import { PoiDetailCard } from "../../components/map/poi-detail-card";
 import { PoiPill } from "../../components/map/poi-pill";
 import { authClient } from "../../lib/auth-client";
-import { formatDateTime, formatDistanceMi } from "../../lib/format";
+import { formatDistanceMi } from "../../lib/format";
 import {
   pendingPoiStore,
   savePoiQueued,
@@ -99,6 +102,7 @@ export default function MapScreen() {
   const router = useRouter();
 
   const mapRef = useRef<MapRef>(null);
+  const cameraRef = useRef<CameraRef>(null);
   const utils = api.useUtils();
 
   const [bbox, setBbox] = useState<Bbox | null>(null);
@@ -243,7 +247,7 @@ export default function MapScreen() {
 
   return (
     <View className="flex-1 bg-river-50">
-      <BaseMap mapRef={mapRef} onRegionChange={setBbox}>
+      <BaseMap mapRef={mapRef} cameraRef={cameraRef} onRegionChange={setBbox}>
         {routeFeatures.features.length > 0 ? (
           <GeoJSONSource
             id="community-route-lines"
@@ -384,41 +388,11 @@ export default function MapScreen() {
 
       {/* POI card */}
       {selectedPoi ? (
-        <View
-          className="absolute inset-x-4 bottom-6 rounded-2xl bg-white p-4 shadow-lg"
-          style={{ elevation: 6 }}
-        >
-          <View className="flex-row items-start justify-between gap-2">
-            <View className="flex-1">
-              <Text className="text-base font-bold text-river-950">
-                {poiMeta(selectedPoi.category).emoji}{" "}
-                {poiMeta(selectedPoi.category).label}
-              </Text>
-              {selectedPoi.note ? (
-                <Text className="mt-1 text-sm text-river-700">
-                  {selectedPoi.note}
-                </Text>
-              ) : null}
-              <Text className="mt-1 text-xs text-river-400">
-                {selectedPoi.creatorName} ·{" "}
-                {formatDateTime(new Date(selectedPoi.createdAt))}
-              </Text>
-            </View>
-            <Pressable
-              onPress={() => setSelectedPoi(null)}
-              hitSlop={8}
-              className="p-1"
-            >
-              <Ionicons name="close" size={20} color="#4fb0cd" />
-            </Pressable>
-          </View>
-          <Pressable
-            onPress={() => handleDelete(selectedPoi)}
-            className="mt-3 min-h-11 items-center justify-center rounded-xl border border-red-200 bg-red-50"
-          >
-            <Text className="text-sm font-semibold text-red-600">Delete</Text>
-          </Pressable>
-        </View>
+        <PoiDetailCard
+          poi={selectedPoi}
+          onClose={() => setSelectedPoi(null)}
+          onDelete={handleDelete}
+        />
       ) : null}
 
       {/* Placement panel */}
@@ -505,6 +479,9 @@ export default function MapScreen() {
           <Ionicons name="add" size={30} color="white" />
         </Pressable>
       ) : null}
+
+      {/* Center-on-me button */}
+      {!overlayHidden ? <LocateFab cameraRef={cameraRef} /> : null}
     </View>
   );
 }

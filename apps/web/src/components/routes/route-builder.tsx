@@ -2,17 +2,18 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import maplibregl, {
-  type LngLatLike,
-  type Map as MapLibreMap,
-} from "maplibre-gl";
+import maplibregl, { type Map as MapLibreMap } from "maplibre-gl";
 import { skipToken } from "@tanstack/react-query";
 import { length as turfLength } from "@turf/length";
 import { lineString as turfLineString } from "@turf/helpers";
 
-import { BaseMap } from "~/components/map/base-map";
+import { BaseMap, MICHIGAN_CENTER } from "~/components/map/base-map";
+import { PoiLayer, type PoiMapItem } from "~/components/map/poi-layer";
 import { FloatingHeader } from "~/components/layout/floating-header";
+import { DIFFICULTY_OPTIONS, type Difficulty } from "~/components/routes/difficulty-badge";
 import { toast } from "~/components/ui/toaster";
+import { addGeolocateControl } from "~/lib/map/geolocate-control";
+import { useInitialCenter } from "~/lib/map/use-initial-center";
 import { api } from "~/trpc/react";
 
 type RouteShape = "one_way" | "out_and_back";
@@ -23,12 +24,23 @@ interface Waypoint {
   lat: number;
 }
 
+interface Bbox {
+  west: number;
+  south: number;
+  east: number;
+  north: number;
+}
+
 const METERS_PER_MILE = 1609.344;
 
-// Huron River near Ann Arbor -- rivers are the primary use case, so we open on
-// a paddleable stretch rather than the lake-oriented default.
-const DEFAULT_CENTER: LngLatLike = [-83.74, 42.29];
-const DEFAULT_ZOOM = 13;
+function capitalize(s: string) {
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+function getBbox(map: MapLibreMap): Bbox {
+  const b = map.getBounds();
+  return { west: b.getWest(), south: b.getSouth(), east: b.getEast(), north: b.getNorth() };
+}
 
 const ROUTE_LINE_SOURCE = "route-builder-line";
 const ROUTE_LINE_COLOR = "#1f7796"; // river-600
@@ -75,12 +87,38 @@ export function RouteBuilder() {
   const [shape, setShape] = useState<RouteShape>("one_way");
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
+  const [difficulty, setDifficulty] = useState<Difficulty | null>(null);
 
   // Refs so the once-registered map click handler always sees current values.
   const modeRef = useRef(mode);
   modeRef.current = mode;
   const putInRef = useRef(putIn);
   putInRef.current = putIn;
+
+  // Existing POIs in the current viewport, so planners can see hazards while drawing. Same
+  // debounced-moveend -> bbox pattern as the community map.
+  const [bbox, setBbox] = useState<Bbox | null>(null);
+  const bboxDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const poisQuery = api.pois.inBbox.useQuery(bbox ?? { west: 0, south: 0, east: 0, north: 0 }, {
+    enabled: !!bbox,
+  });
+  const poiItems: PoiMapItem[] = (poisQuery.data ?? []).map((p) => ({
+    id: p.id,
+    category: p.category,
+    note: p.note,
+    lng: p.geom.coordinates[0]!,
+    lat: p.geom.coordinates[1]!,
+    creatorName: p.creatorName,
+    createdAt: p.createdAt,
+  }));
+
+  // Geolocation-driven initial view: starts at the Michigan default (same as `BaseMap` itself), and
+  // jumps to the user's real position once resolved -- but only if they haven't already started
+  // interacting with the map (tapped a pin, panned, etc), and only on an actual fix (permission
+  // denied/timeout leaves `geoCenter` as the exact `MICHIGAN_CENTER` reference, so it's a silent
+  // no-op fallback to Michigan).
+  const { center: geoCenter, resolved: geoResolved } = useInitialCenter();
+  const interactedRef = useRef(false);
 
   // Calculate dirty state for navigation guards.
   const dirty = putIn !== null || takeOut !== null || waypoints.length > 0 || name.trim().length > 0 || description.trim().length > 0;
@@ -156,6 +194,52 @@ export function RouteBuilder() {
     map.once("load", () => setMapReady(true));
   }, [map]);
 
+  // POI viewport bbox: initial load + debounced reload on moveend.
+  useEffect(() => {
+    if (!map) return;
+    const updateBbox = () => setBbox(getBbox(map));
+    const onMoveEnd = () => {
+      if (bboxDebounceRef.current) clearTimeout(bboxDebounceRef.current);
+      bboxDebounceRef.current = setTimeout(updateBbox, 300);
+    };
+    if (map.loaded()) updateBbox();
+    else map.once("load", updateBbox);
+    map.on("moveend", onMoveEnd);
+    return () => {
+      map.off("moveend", onMoveEnd);
+      if (bboxDebounceRef.current) clearTimeout(bboxDebounceRef.current);
+    };
+  }, [map]);
+
+  // Built-in "locate me" button, shared with the other maps.
+  useEffect(() => {
+    if (!map) return;
+    return addGeolocateControl(map);
+  }, [map]);
+
+  // Track the first tap/drag so a geolocation fix that resolves afterward doesn't yank the map out
+  // from under a planner who's already started working.
+  useEffect(() => {
+    if (!map) return;
+    const markInteracted = () => {
+      interactedRef.current = true;
+    };
+    map.on("click", markInteracted);
+    map.on("dragstart", markInteracted);
+    return () => {
+      map.off("click", markInteracted);
+      map.off("dragstart", markInteracted);
+    };
+  }, [map]);
+
+  // Jump to the resolved geolocation fix, once, if the planner hasn't already interacted with the
+  // map. `geoCenter === MICHIGAN_CENTER` means no real fix arrived (denied/timeout) -- stay put.
+  useEffect(() => {
+    if (!map || !geoResolved || interactedRef.current) return;
+    if (geoCenter === MICHIGAN_CENTER) return;
+    map.jumpTo({ center: geoCenter, zoom: 13 });
+  }, [map, geoResolved, geoCenter]);
+
   // Prevent navigation away from unsaved changes via browser back/refresh/close.
   useEffect(() => {
     if (!dirty && !createRoute.isPending) return;
@@ -175,6 +259,12 @@ export function RouteBuilder() {
     if (!map) return;
 
     const handleClick = (e: maplibregl.MapMouseEvent) => {
+      // A tap on a POI marker (or its open popup -- e.g. the Delete button) still reaches the map's
+      // `click` event (that's how maplibre's own `Marker.setPopup()` toggles the popup), so ignore it
+      // here rather than also dropping a route pin under the paddler's finger.
+      const target = e.originalEvent.target as HTMLElement | null;
+      if (target?.closest("[data-poi-marker], .maplibregl-popup")) return;
+
       const coord = { lng: e.lngLat.lng, lat: e.lngLat.lat };
       if (modeRef.current === "river") {
         if (!putInRef.current) setPutIn(coord);
@@ -350,6 +440,7 @@ export function RouteBuilder() {
         type: "river",
         shape,
         description: description.trim() || undefined,
+        difficulty: difficulty ?? undefined,
         geometry: {
           type: "LineString",
           coordinates: riverData.geometry.coordinates.map(
@@ -363,6 +454,7 @@ export function RouteBuilder() {
         type: "waypoint",
         shape,
         description: description.trim() || undefined,
+        difficulty: difficulty ?? undefined,
         geometry: {
           type: "LineString",
           coordinates: waypoints.map((wp) => [wp.lng, wp.lat]),
@@ -384,12 +476,8 @@ export function RouteBuilder() {
 
   return (
     <main className="relative h-dvh w-dvw">
-      <BaseMap
-        className="h-full w-full"
-        center={DEFAULT_CENTER}
-        zoom={DEFAULT_ZOOM}
-        onMap={setMap}
-      />
+      <BaseMap className="h-full w-full" onMap={setMap} />
+      <PoiLayer map={map} pois={poiItems} />
 
       {mode === "river" && riverQuery.isFetching ? (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
@@ -518,6 +606,25 @@ export function RouteBuilder() {
             >
               Out & back
             </button>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-1.5">
+            {DIFFICULTY_OPTIONS.map((option) => (
+              <button
+                key={option}
+                type="button"
+                onClick={() =>
+                  setDifficulty((current) => (current === option ? null : option))
+                }
+                className={`min-h-9 flex-1 rounded-xl text-sm font-semibold transition-colors ${
+                  difficulty === option
+                    ? "bg-river-600 text-white"
+                    : "bg-river-50 text-river-700"
+                }`}
+              >
+                {capitalize(option)}
+              </button>
+            ))}
           </div>
 
           {mode === "river" ? (

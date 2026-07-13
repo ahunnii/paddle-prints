@@ -30,7 +30,10 @@ import {
 import type { Feature, LineString } from "geojson";
 
 import { BaseMap } from "../../../components/map/base-map";
+import { LocateFab } from "../../../components/map/locate-fab";
+import { PoiDetailCard } from "../../../components/map/poi-detail-card";
 import { PoiPill } from "../../../components/map/poi-pill";
+import { DifficultyBadge } from "../../../components/routes/difficulty-badge";
 import { authClient } from "../../../lib/auth-client";
 import { formatBytes, formatHM, formatRouteDistance } from "../../../lib/format";
 import { boundsOf } from "../../../lib/geo";
@@ -54,6 +57,7 @@ const MPH_PER_MPS = 2.2369363;
 type RouteType = RouterOutputs["routes"]["byId"]["type"];
 type RouteShape = RouterOutputs["routes"]["byId"]["shape"];
 type EtaData = RouterOutputs["routes"]["etaForUser"];
+type RoutePoi = RouterOutputs["routes"]["byId"]["pois"][number];
 
 function typeLabel(type: RouteType) {
   return type === "waypoint" ? "🌊 Lake / open water" : "🏞️ River";
@@ -89,6 +93,7 @@ export default function RouteDetailScreen() {
 
   const cameraRef = useRef<CameraRef>(null);
   const [mapReady, setMapReady] = useState(false);
+  const [selectedPoi, setSelectedPoi] = useState<RoutePoi | null>(null);
 
   const route = routeQuery.data;
 
@@ -216,6 +221,7 @@ export default function RouteDetailScreen() {
                 id={`route-detail-poi-${poi.id}`}
                 lngLat={[lng, lat]}
                 anchor="center"
+                onPress={() => setSelectedPoi(poi)}
               >
                 <PoiPill emoji={meta.emoji} color={meta.color} />
               </ViewAnnotation>
@@ -231,11 +237,20 @@ export default function RouteDetailScreen() {
         >
           <Ionicons name="chevron-back" size={22} color="#0d1f24" />
         </Pressable>
+
+        {!selectedPoi ? <LocateFab cameraRef={cameraRef} /> : null}
+
+        {selectedPoi ? (
+          <PoiDetailCard poi={selectedPoi} onClose={() => setSelectedPoi(null)} />
+        ) : null}
       </View>
 
       <ScrollView className="flex-1" contentContainerClassName="gap-4 p-4">
         <View>
-          <Text className="text-xl font-extrabold text-river-950">{route.name}</Text>
+          <View className="flex-row items-center gap-2">
+            <Text className="text-xl font-extrabold text-river-950">{route.name}</Text>
+            <DifficultyBadge difficulty={route.difficulty} />
+          </View>
           <Text className="mt-0.5 text-sm text-river-600">
             {typeLabel(route.type)} · {shapeLabel(route.shape)}
           </Text>

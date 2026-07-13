@@ -10,6 +10,7 @@ import {
   paddleCrew,
   paddles,
   pois,
+  routeDifficulty,
   routeShape,
   routeType,
   routes,
@@ -48,6 +49,7 @@ export const routesRouter = createTRPCRouter({
         shape: z.enum(routeShape.enumValues),
         geometry: lineStringGeometry,
         description: z.string().trim().max(2000).optional(),
+        difficulty: z.enum(routeDifficulty.enumValues).optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -64,6 +66,7 @@ export const routesRouter = createTRPCRouter({
             input.description && input.description.length > 0
               ? input.description
               : null,
+          difficulty: input.difficulty,
           // Never trust a client-supplied distance -- recompute it authoritatively from the
           // submitted geometry using a geography cast (accounts for the earth's curvature).
           distanceM: sql<number>`ST_Length(ST_GeomFromGeoJSON(${geometryJson})::geography)`,
@@ -91,6 +94,7 @@ export const routesRouter = createTRPCRouter({
           type: routes.type,
           shape: routes.shape,
           distanceM: routes.distanceM,
+          difficulty: routes.difficulty,
           createdAt: routes.createdAt,
           creatorName: user.name,
           creatorImage: user.image,
@@ -108,7 +112,12 @@ export const routesRouter = createTRPCRouter({
   /** Lightweight id/name/geom for every route, for drawing all saved lines on the community map. */
   listGeoms: protectedProcedure.query(async ({ ctx }) => {
     return ctx.db
-      .select({ id: routes.id, name: routes.name, geom: routes.geom })
+      .select({
+        id: routes.id,
+        name: routes.name,
+        geom: routes.geom,
+        difficulty: routes.difficulty,
+      })
       .from(routes);
   }),
 
@@ -124,6 +133,7 @@ export const routesRouter = createTRPCRouter({
           geom: routes.geom,
           distanceM: routes.distanceM,
           description: routes.description,
+          difficulty: routes.difficulty,
           createdBy: routes.createdBy,
           createdAt: routes.createdAt,
           creatorName: user.name,
@@ -263,6 +273,66 @@ export const routesRouter = createTRPCRouter({
         speedMps: DEFAULT_HISTORICAL_SPEED_MPS,
         estimates: estimatesFor(DEFAULT_HISTORICAL_SPEED_MPS),
       };
+    }),
+
+  /**
+   * Edit a route's name, description, and/or difficulty. Creator-only. Only the fields present in
+   * the input are touched: an omitted field is left unchanged, while an explicit `null` on a
+   * nullish field (description, difficulty) clears it.
+   */
+  update: protectedProcedure
+    .input(
+      z.object({
+        id: z.string().uuid(),
+        name: z.string().trim().min(1).max(80).optional(),
+        description: z.string().max(2000).nullish(),
+        difficulty: z.enum(routeDifficulty.enumValues).nullish(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const [route] = await ctx.db
+        .select({ createdBy: routes.createdBy })
+        .from(routes)
+        .where(eq(routes.id, input.id));
+
+      if (!route) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Route not found" });
+      }
+
+      if (route.createdBy !== ctx.session.user.id) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Only the route's creator can edit it",
+        });
+      }
+
+      const updates: Partial<typeof routes.$inferInsert> = {};
+      if (input.name !== undefined) updates.name = input.name;
+      if (input.description !== undefined)
+        updates.description = input.description;
+      if (input.difficulty !== undefined) updates.difficulty = input.difficulty;
+
+      const [updated] = await ctx.db
+        .update(routes)
+        .set(updates)
+        .where(
+          and(
+            eq(routes.id, input.id),
+            eq(routes.createdBy, ctx.session.user.id),
+          ),
+        )
+        .returning({
+          id: routes.id,
+          name: routes.name,
+          description: routes.description,
+          difficulty: routes.difficulty,
+        });
+
+      if (!updated) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Route not found" });
+      }
+
+      return updated;
     }),
 
   delete: protectedProcedure

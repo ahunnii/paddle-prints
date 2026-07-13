@@ -11,8 +11,8 @@ import "maplibre-gl/dist/maplibre-gl.css";
 
 import { getTilesUrl, registerPmtilesProtocol } from "~/lib/map/protocol";
 
-const MICHIGAN_CENTER: LngLatLike = [-84.9, 44.3];
-const MICHIGAN_ZOOM = 6.5;
+export const MICHIGAN_CENTER: LngLatLike = [-84.9, 44.3];
+export const MICHIGAN_ZOOM = 6.5;
 
 // Loose bounding box around Michigan and the surrounding Great Lakes.
 const MICHIGAN_BOUNDS: LngLatBoundsLike = [

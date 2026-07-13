@@ -5,6 +5,8 @@ import { notFound, redirect } from "next/navigation";
 
 import { FloatingHeader } from "~/components/layout/floating-header";
 import { DeleteRouteButton } from "~/components/routes/delete-route-button";
+import { DifficultyBadge } from "~/components/routes/difficulty-badge";
+import { DifficultyEditor } from "~/components/routes/difficulty-editor";
 import { DownloadTripButton } from "~/components/offline/download-trip-button";
 import { RouteMap } from "~/components/routes/route-map";
 import { YourPaceCard } from "~/components/routes/your-pace-card";
@@ -81,6 +83,13 @@ export default async function RouteDetailPage({
               {typeLabel(route.type)} &middot;{" "}
               {route.shape === "out_and_back" ? "Out & back" : "One-way"}
             </p>
+            <div className="mt-2">
+              {session.user.id === route.createdBy ? (
+                <DifficultyEditor routeId={route.id} difficulty={route.difficulty} />
+              ) : (
+                <DifficultyBadge difficulty={route.difficulty} />
+              )}
+            </div>
             {route.description ? (
               <p className="text-river-700 mt-2 text-sm">
                 {route.description}

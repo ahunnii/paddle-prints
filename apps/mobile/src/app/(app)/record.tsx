@@ -242,6 +242,7 @@ function usePaddleForRecording(paddleId: string | null | undefined): {
     geom: { type: "LineString", coordinates: coords },
     distanceM: paddle.distanceM,
     description: null,
+    difficulty: null,
     createdBy: paddle.userId,
     createdAt: paddle.startedAt,
     creatorName: paddle.userName,

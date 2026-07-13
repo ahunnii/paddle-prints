@@ -13,6 +13,7 @@ import { useCallback, useState } from "react";
 import { ActivityIndicator, FlatList, Pressable, Text, View } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 
+import { DifficultyBadge } from "../../../components/routes/difficulty-badge";
 import { formatRouteDistance } from "../../../lib/format";
 import { getDownloadedTrips } from "../../../lib/offline/trips";
 import { api, type RouterOutputs } from "../../../lib/trpc";
@@ -53,6 +54,7 @@ function RouteCard({
               </Text>
             </View>
           ) : null}
+          <DifficultyBadge difficulty={item.difficulty} />
         </View>
         <Text className="mt-0.5 text-sm text-river-600">
           {formatRouteDistance(item.distanceM, item.shape)}
