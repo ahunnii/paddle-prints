@@ -28,6 +28,7 @@ export default async function PaddleDetailPage({
     server = {
       id: paddle.id,
       userName: paddle.userName,
+      userImage: paddle.userImage,
       routeId: paddle.routeId,
       routeName: paddle.routeName,
       startedAt: paddle.startedAt.toISOString(),

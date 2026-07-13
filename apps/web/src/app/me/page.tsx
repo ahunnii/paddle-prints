@@ -16,6 +16,7 @@ export default async function MePage() {
       user={{
         name: session.user.name,
         email: session.user.email,
+        image: session.user.image ?? null,
       }}
       paceStats={paceStats}
     />

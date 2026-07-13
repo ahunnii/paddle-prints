@@ -9,9 +9,13 @@ import {
 } from "react-native";
 import { useFocusEffect } from "expo-router";
 import { useQueryClient } from "@tanstack/react-query";
+import * as ImagePicker from "expo-image-picker";
 
 import { colors } from "@paddle-prints/tokens";
 
+import { Avatar } from "../../components/ui/avatar";
+import { CrewSection } from "../../components/me/crew-section";
+import { env } from "../../env";
 import { authClient } from "../../lib/auth-client";
 import { formatSpeedMph } from "../../lib/format";
 import {
@@ -85,7 +89,7 @@ function useSyncStatus() {
 }
 
 export default function MeScreen() {
-  const { data: session } = authClient.useSession();
+  const { data: session, refetch: refetchSession } = authClient.useSession();
   const queryClient = useQueryClient();
   const stats = api.paddles.myStats.useQuery();
   const sharePresence = useSettings((s) => s.sharePresence);
@@ -93,6 +97,73 @@ export default function MeScreen() {
   const [signingOut, setSigningOut] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const sync = useSyncStatus();
+
+  // Optimistic override for the just-uploaded avatar: `authClient.useSession()`'s cache can take a
+  // moment to reflect the new `image` even after `refetch()`, so this shows the new photo instantly
+  // while the session catches up in the background.
+  const [uploadedImage, setUploadedImage] = useState<string | null>(null);
+  const [avatarUploading, setAvatarUploading] = useState(false);
+  const [avatarError, setAvatarError] = useState<string | null>(null);
+  const avatarImage = uploadedImage ?? session?.user.image ?? null;
+
+  /**
+   * Picks a square photo from the library and posts it to `POST /api/avatars` (multipart, field
+   * `file`), cookie-authenticated the same way the tRPC client is (`authClient.getCookie()` -- the
+   * @better-auth/expo client's stored session cookie; see lib/trpc.ts's httpBatchLink headers()).
+   * Mirrors apps/web/src/components/me/avatar-uploader.tsx's flow (preview + session refetch) since
+   * there's no web `router.refresh()` equivalent to also nudge here.
+   */
+  async function handleChangePhoto() {
+    setAvatarError(null);
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      setAvatarError("Photo library access is needed to change your avatar.");
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["images"],
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.9,
+    });
+    if (result.canceled) return;
+    const asset = result.assets[0];
+    if (!asset) return;
+
+    setAvatarUploading(true);
+    try {
+      const formData = new FormData();
+      // RN's FormData accepts a { uri, name, type } file descriptor at runtime; the DOM lib types
+      // only allow string | Blob, so this needs the cast every RN multipart upload uses.
+      formData.append(
+        "file",
+        {
+          uri: asset.uri,
+          name: "avatar.jpg",
+          type: "image/jpeg",
+        } as unknown as Blob,
+      );
+
+      const res = await fetch(`${env.EXPO_PUBLIC_API_URL}/api/avatars`, {
+        method: "POST",
+        headers: { Cookie: authClient.getCookie() },
+        body: formData,
+      });
+      if (!res.ok) {
+        throw new Error(`Upload failed (${res.status})`);
+      }
+      const data = (await res.json()) as { url: string };
+      setUploadedImage(data.url);
+      await refetchSession();
+    } catch (err) {
+      setAvatarError(
+        err instanceof Error ? err.message : "Couldn't upload photo.",
+      );
+    } finally {
+      setAvatarUploading(false);
+    }
+  }
 
   async function handleSyncNow() {
     setSyncing(true);
@@ -127,11 +198,26 @@ export default function MeScreen() {
       className="flex-1 bg-river-50"
       contentContainerClassName="gap-6 p-4"
     >
-      <View>
-        <Text className="text-2xl font-extrabold tracking-tight text-river-900">
-          {session?.user.name}
-        </Text>
-        <Text className="text-sm text-river-600">{session?.user.email}</Text>
+      <View className="flex-row items-center gap-4">
+        <Avatar name={session?.user.name ?? ""} image={avatarImage} size="lg" />
+        <View className="flex-1 gap-1">
+          <Text className="text-2xl font-extrabold tracking-tight text-river-900">
+            {session?.user.name}
+          </Text>
+          <Text className="text-sm text-river-600">{session?.user.email}</Text>
+          <Pressable
+            onPress={() => void handleChangePhoto()}
+            disabled={avatarUploading}
+            className="mt-1 self-start disabled:opacity-60"
+          >
+            <Text className="text-sm font-semibold text-sunset-600">
+              {avatarUploading ? "Uploading…" : "Change photo"}
+            </Text>
+          </Pressable>
+          {avatarError ? (
+            <Text className="text-xs text-red-600">{avatarError}</Text>
+          ) : null}
+        </View>
       </View>
 
       <View className="gap-3 rounded-2xl bg-white p-4 shadow-sm">
@@ -165,6 +251,8 @@ export default function MeScreen() {
           </Text>
         )}
       </View>
+
+      <CrewSection />
 
       {/* Sync card -- shown only when there's something queued or failed (cleaner than web's always-on
           section). Waiting counts, any dead-lettered rows with a per-row discard, and a Sync now. */}

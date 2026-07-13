@@ -49,6 +49,9 @@ yarn-error.log*
 # local tile builds (michigan.pmtiles is deployed by scp, not git)
 /tiles
 
+# user-uploaded media (avatars, etc.) — default UPLOADS_DIR; prod points at a persistent volume
+uploads/
+
 # expo / turborepo
 .turbo/
 .expo/

@@ -4,6 +4,7 @@ import { poisRouter } from "./routers/pois";
 import { presenceRouter } from "./routers/presence";
 import { riversRouter } from "./routers/rivers";
 import { routesRouter } from "./routers/routes";
+import { usersRouter } from "./routers/users";
 import { createCallerFactory, createTRPCRouter } from "./trpc";
 
 /**
@@ -18,6 +19,7 @@ export const appRouter = createTRPCRouter({
   presence: presenceRouter,
   rivers: riversRouter,
   routes: routesRouter,
+  users: usersRouter,
 });
 
 // export type definition of API

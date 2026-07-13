@@ -13,6 +13,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useLiveQuery } from "dexie-react-hooks";
 
+import { Avatar } from "~/components/ui/avatar";
 import { db } from "~/lib/offline/db";
 import type { RouterOutputs } from "~/trpc/react";
 
@@ -23,16 +24,28 @@ type ServerRow = RouterOutputs["paddles"]["feed"][number];
 
 type SyncStatus = "syncing" | "failed" | "saved" | null;
 
-/** The one shape the list renders -- server rows and queued paddles both normalize into this. */
+/**
+ * The one shape the list renders -- server rows and queued paddles both normalize into this.
+ * `userImage` is only ever known for server rows; queued paddles (still in this device's IndexedDB
+ * outbound queue, not yet a `ServerRow`) don't carry it, so it's always `null` for them and the
+ * Avatar falls back to initials.
+ */
 interface FeedItem {
   id: string;
   userName: string | null;
+  userImage: string | null;
   routeName: string | null;
   distanceM: number;
   avgSpeedMps: number;
   elapsedS: number;
   startedAt: Date | string;
   status: SyncStatus;
+}
+
+/** Defensive accessor: `item` may come from a server row (has `userImage`) or a locally-queued
+ * paddle (doesn't) -- narrow with an `in` check rather than assuming the shape. */
+function userImageOf(item: { userImage?: string | null }): string | null {
+  return "userImage" in item ? (item.userImage ?? null) : null;
 }
 
 function shortElapsed(totalS: number) {
@@ -61,6 +74,7 @@ export function FeedList({ initial }: { initial: ServerRow[] }) {
       items.push({
         id: r.id,
         userName: "You",
+        userImage: null,
         routeName,
         distanceM: r.input.distanceM,
         avgSpeedMps: r.input.avgSpeedMps,
@@ -125,6 +139,7 @@ export function FeedList({ initial }: { initial: ServerRow[] }) {
   const serverItems: FeedItem[] = initial.map((r) => ({
     id: r.id,
     userName: r.userName,
+    userImage: userImageOf(r),
     routeName: r.routeName,
     distanceM: r.distanceM,
     avgSpeedMps: r.avgSpeedMps,
@@ -168,13 +183,16 @@ export function FeedList({ initial }: { initial: ServerRow[] }) {
               className="bg-river-900/60 hover:bg-river-900 active:bg-river-900 block rounded-2xl p-4 shadow transition-colors"
             >
               <div className="flex items-start justify-between gap-2">
-                <p className="font-semibold">
-                  <span className="text-white">{p.userName}</span>{" "}
-                  <span className="text-river-300">paddled</span>{" "}
-                  <span className="text-sunset-300">
-                    {p.routeName ?? "a quick start paddle"}
-                  </span>
-                </p>
+                <div className="flex min-w-0 items-start gap-2">
+                  <Avatar name={p.userName ?? "Someone"} image={p.userImage} size="sm" />
+                  <p className="font-semibold">
+                    <span className="text-white">{p.userName}</span>{" "}
+                    <span className="text-river-300">paddled</span>{" "}
+                    <span className="text-sunset-300">
+                      {p.routeName ?? "a quick start paddle"}
+                    </span>
+                  </p>
+                </div>
                 {inlineBadge === "syncing" ? (
                   <span className="shrink-0 rounded-full bg-amber-400/90 px-2 py-0.5 text-xs font-bold text-amber-950">
                     Syncing…

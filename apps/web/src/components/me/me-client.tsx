@@ -18,6 +18,8 @@ import {
 import { db } from "~/lib/offline/db";
 import { useSettings } from "~/lib/settings/use-settings";
 import { SignOutButton } from "~/app/_components/sign-out-button";
+import { AvatarUploader } from "~/components/me/avatar-uploader";
+import { CrewSection } from "~/components/me/crew-section";
 
 const MPS_TO_MPH = 2.2369363;
 
@@ -35,7 +37,7 @@ export function MeClient({
   user,
   paceStats,
 }: {
-  user: { name: string; email: string };
+  user: { name: string; email: string; image: string | null };
   paceStats: PaceStat[];
 }) {
   const storage = useStorageSummary();
@@ -77,9 +79,14 @@ export function MeClient({
           <SignOutButton />
         </div>
 
-        <div>
-          <h1 className="font-display text-2xl font-extrabold tracking-tight">{user.name}</h1>
-          <p className="text-river-300 text-sm">{user.email}</p>
+        <div className="flex items-center gap-4">
+          <AvatarUploader name={user.name} image={user.image} />
+          <div className="min-w-0">
+            <h1 className="font-display truncate text-2xl font-extrabold tracking-tight">
+              {user.name}
+            </h1>
+            <p className="text-river-300 truncate text-sm">{user.email}</p>
+          </div>
         </div>
 
         {/* Your pace --------------------------------------------------------- */}
@@ -112,6 +119,9 @@ export function MeClient({
             </div>
           )}
         </section>
+
+        {/* Crew ---------------------------------------------------------------- */}
+        <CrewSection />
 
         {/* Preferences ------------------------------------------------------- */}
         <section className="flex flex-col gap-4 rounded-3xl bg-white/10 p-5">

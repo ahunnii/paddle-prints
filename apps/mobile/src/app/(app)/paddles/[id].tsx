@@ -30,6 +30,7 @@ import {
 import type { Feature, LineString } from "geojson";
 
 import { BaseMap } from "../../../components/map/base-map";
+import { Avatar } from "../../../components/ui/avatar";
 import { authClient } from "../../../lib/auth-client";
 import {
   formatClock,
@@ -182,14 +183,21 @@ export default function PaddleDetailScreen() {
         contentContainerClassName="gap-4 p-4"
         keyboardShouldPersistTaps="handled"
       >
-        <View>
-          <Text className="text-xl font-extrabold text-river-950">
-            {paddle.userName ?? "Someone"} paddled{" "}
-            {paddle.routeId && paddle.routeName ? paddle.routeName : "a quick start paddle"}
-          </Text>
-          <Text className="mt-0.5 text-sm text-river-600">
-            {formatDateTime(new Date(paddle.startedAt))}
-          </Text>
+        <View className="flex-row items-center gap-3">
+          <Avatar
+            name={paddle.userName ?? "Someone"}
+            image={paddle.userImage}
+            size="md"
+          />
+          <View className="flex-1">
+            <Text className="text-xl font-extrabold text-river-950">
+              {paddle.userName ?? "Someone"} paddled{" "}
+              {paddle.routeId && paddle.routeName ? paddle.routeName : "a quick start paddle"}
+            </Text>
+            <Text className="mt-0.5 text-sm text-river-600">
+              {formatDateTime(new Date(paddle.startedAt))}
+            </Text>
+          </View>
         </View>
 
         <View className="flex-row flex-wrap gap-x-4 gap-y-3 rounded-2xl bg-white p-4 shadow-sm">

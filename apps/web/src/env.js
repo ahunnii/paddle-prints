@@ -18,6 +18,9 @@ export const env = createEnv({
     // carved from (see app/api/trips/[routeId]/tiles). Optional: falls back to the repo-relative
     // ../../tiles/data/michigan.pmtiles (resolved from the apps/web cwd) in local dev.
     TILES_ARCHIVE_PATH: z.string().optional(),
+    // Filesystem path under which user-uploaded media (e.g. avatars) is written and served. In
+    // production this should point at a persistent volume; defaults to a repo-relative ./uploads dir.
+    UPLOADS_DIR: z.string().default("./uploads"),
   },
 
   /**
@@ -41,6 +44,7 @@ export const env = createEnv({
     BETTER_AUTH_URL: process.env.BETTER_AUTH_URL,
     INVITE_CODE: process.env.INVITE_CODE,
     TILES_ARCHIVE_PATH: process.env.TILES_ARCHIVE_PATH,
+    UPLOADS_DIR: process.env.UPLOADS_DIR,
     NEXT_PUBLIC_TILES_URL: process.env.NEXT_PUBLIC_TILES_URL,
     NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL,
   },

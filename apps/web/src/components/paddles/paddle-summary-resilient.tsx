@@ -14,6 +14,7 @@ import { useLiveQuery } from "dexie-react-hooks";
 
 import { FloatingHeader } from "~/components/layout/floating-header";
 import { PaddleMap } from "~/components/paddles/paddle-map";
+import { Avatar } from "~/components/ui/avatar";
 import { toast } from "~/components/ui/toaster";
 import { db } from "~/lib/offline/db";
 import { api } from "~/trpc/react";
@@ -24,6 +25,7 @@ const MPS_TO_MPH = 2.2369363;
 export interface SummaryData {
   id: string;
   userName: string | null;
+  userImage: string | null;
   routeId: string | null;
   routeName: string | null;
   startedAt: string;
@@ -66,6 +68,7 @@ export function PaddleSummaryResilient({
     const data: SummaryData = {
       id,
       userName: "You",
+      userImage: null,
       routeId: input.routeId,
       routeName: trip?.route.name ?? null,
       startedAt:
@@ -148,6 +151,11 @@ export function PaddleSummaryResilient({
         <div className="pointer-events-auto flex w-full max-w-md flex-col gap-4 rounded-3xl bg-white/95 p-5 shadow-2xl backdrop-blur">
           <div>
             <div className="flex items-center gap-2">
+              <Avatar
+                name={data.userName ?? "Someone"}
+                image={data.userImage}
+                size="sm"
+              />
               <h1 className="text-river-950 font-display text-xl font-extrabold tracking-tight">
                 {data.userName ?? "Someone"} paddled{" "}
                 {data.routeId && data.routeName ? (

@@ -9,6 +9,7 @@ import {
 } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 
+import { Avatar } from "../../components/ui/avatar";
 import {
   formatDateTime,
   formatDistanceMi,
@@ -63,9 +64,13 @@ function PendingPaddleCard({ row }: { row: PendingRow<PaddleInput> }) {
   return (
     <View className="rounded-2xl border border-sunset-200 bg-white p-4 shadow-sm">
       <View className="flex-row items-center justify-between gap-2">
-        <Text className="flex-1 font-semibold text-river-900" numberOfLines={1}>
-          You
-        </Text>
+        <View className="flex-1 flex-row items-center gap-2">
+          {/* Queued-offline rows carry no server userImage yet -- Avatar falls back to initials. */}
+          <Avatar name="You" image={null} size="sm" />
+          <Text className="flex-1 font-semibold text-river-900" numberOfLines={1}>
+            You
+          </Text>
+        </View>
         <View
           className={`rounded-full px-2 py-0.5 ${failed ? "bg-red-100" : "bg-sunset-100"}`}
         >
@@ -102,12 +107,15 @@ function FeedCard({ item }: { item: FeedItem }) {
       className="rounded-2xl bg-white p-4 shadow-sm active:opacity-80"
     >
       <View className="flex-row items-center justify-between gap-2">
-        <Text
-          className="flex-1 font-semibold text-river-900"
-          numberOfLines={1}
-        >
-          {item.userName}
-        </Text>
+        <View className="min-w-0 flex-1 flex-row items-center gap-2">
+          <Avatar name={item.userName ?? "Someone"} image={item.userImage} size="sm" />
+          <Text
+            className="flex-1 font-semibold text-river-900"
+            numberOfLines={1}
+          >
+            {item.userName}
+          </Text>
+        </View>
         <View className="rounded-full bg-river-100 px-2 py-0.5">
           <Text className="text-xs font-bold text-river-700">
             {tripTypeLabel(item.tripType)}
